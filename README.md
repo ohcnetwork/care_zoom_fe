@@ -1,10 +1,16 @@
 # CARE Zoom Video
 
+Current implementation, setup and remaining work: [implementation handoff](../care/care_zoom/IMPLEMENTATION.md).
+
 Independent frontend plugin for `care_zoom`, using the pinned CARE frontend's existing component override and authentication APIs. No core source edits are required.
 
-A stable `/teleconsult/<booking_uuid>` URL serves the assigned practitioner and the patient authenticated with CARE OTP. The plugin adds Join/Copy actions to staff appointment details and a compact Video appointments panel above the existing patient portal. Core controls, tabs, props and children are retained.
+Staff calls use `/facility/<facility_uuid>/patient/<patient_uuid>/appointments/<booking_uuid>/video`, inside CARE’s facility shell. The stable shared `/teleconsult/<booking_uuid>` URL stays available to patients authenticated with CARE OTP and redirects signed-in staff to that facility route. Deploy the matching `care_zoom` backend update, which returns authorized staff-only `staff_context` IDs for this redirect. The plugin adds Join/Copy actions to staff appointment details and a compact Video appointments panel above the existing patient portal. Core controls, tabs, props and children are retained.
+
+The staff call page shows the appointment’s notes, patient, facility, time and status. **Open encounter** opens its associated encounter; **Start consultation** opens CARE’s native appointment-linked encounter form when the appointment is eligible. Other non-final appointments link to the native appointment page for planned encounter creation. These actions open a new tab to keep the call connected, and returning refreshes the encounter association. Permissions and encounter creation remain with CARE.
 
 The Video SDK loads only after the user chooses **Prepare for call**. Camera preview, microphone level check and device selection precede joining. In a call the controls include audio, mute, camera, Leave and assigned-host End for everyone. Speaker selection appears only where supported; mobile camera selection uses front/back facing modes. Zoom tokens remain in function memory and are fetched afresh for each join.
+
+Connected calls offer native **Picture-in-picture** on browsers with the Document Picture-in-Picture API (secure context required). The floating window retains the live video, audio/camera controls and Leave action. Chrome can open it on tab switches through Media Session when the page uses HTTPS, camera/microphone capture is active, and the user’s Auto PiP setting permits it. HTTP localhost passes the secure-context check for manual PiP, but Chromium explicitly excludes HTTP URLs from automatic PiP. Use the manual button on the local HTTP workspace; automatic behavior needs a trusted HTTPS deployment. See [Chromium’s URL eligibility check](https://github.com/chromium/chromium/blob/main/chrome/browser/picture_in_picture/auto_picture_in_picture_tab_helper.cc). Closing the floating window restores the call to its tab; leaving or unmounting closes it. Unsupported browsers keep the call in its original tab. See [Chrome’s automatic PiP requirements](https://developer.chrome.com/blog/automatic-picture-in-picture) and [Document PiP](https://developer.chrome.com/docs/web-platform/document-picture-in-picture). Navigating the call tab itself still leaves the call.
 
 Joining or leaving does not update appointment status. The backend authorizes every token request. Changes to appointment eligibility do not revoke a token already issued or disconnect a running call. Logging out, changing authenticated identity or leaving the page disposes the SDK/media resources. Recording, transcripts, screen sharing, chat, waiting rooms, reminders, webhooks and native applications are outside v1.
 
@@ -13,7 +19,7 @@ Joining or leaving does not update appointment status. The backend authorizes ev
 This checkout uses Node 24 and npm. The isolated scaffold runtime is `/Users/gigin/care_scaffold`; saved ports are API **25416**, frontend host **25417**, plugin preview **25418**.
 
 ```sh
-cd /Users/gigin/care_zoom_fe
+cd /Users/gigin/care_scaffold/care_zoom_fe
 npm ci
 npm run dev
 ```
@@ -41,7 +47,7 @@ Deployment requires HTTPS (localhost is supported for development), browser medi
 ## Verification
 
 ```sh
-cd /Users/gigin/care_zoom_fe
+cd /Users/gigin/care_scaffold/care_zoom_fe
 npm test
 npm run typecheck
 npm run build
@@ -52,10 +58,20 @@ CARE_FE_URL=http://localhost:25417 PLAYWRIGHT_CHANNEL=chrome npm run test:host
 The browser suite uses installed Chrome when `PLAYWRIGHT_CHANNEL=chrome`; otherwise install the version of Chromium required by Playwright with `npx playwright install chromium`.
 
 - `tests/entrypoints.test.tsx`: wrapper preservation, exact public route matching, encoded absolute same-origin staff login return, CARE's five-digit OTP flow, token/auth scoping, pagination safety, session renewal and changed-identity isolation. Active calls remain mounted when metadata eligibility changes.
-- `tests/zoom-call.test.tsx`: mocked SDK lifecycle, media errors, device changes, reconnect, remote participant rendering, host ending and cleanup. These tests do not establish real media interoperability.
+- `tests/staff-appointment-details.test.tsx`: staff-only reads, permissions, empty encounter responses, native encounter links, route validation and focus refresh.
+- `tests/zoom-call.test.tsx`: native PiP lifecycle/portal controls with browser API mocks, mocked SDK lifecycle, media errors, device changes, reconnect, remote participant rendering, host ending and cleanup. These tests do not establish real media interoperability.
 - `tests/host.spec.ts`: real pinned host and federated plugin with clearly marked API fixtures. Verifies staff login return, OTP route fallback, preserved appointment card and patient portal controls, unrelated public routes, and real lazy SDK prejoin with browser-denied camera access without requesting a Zoom token.
 
-The entry-point and login flows were verified with a placeholder before the SDK was integrated. A real two-party Zoom call is still unverified without Video SDK credentials. Acceptance still requires separate doctor/patient browser sessions, real audio/video, reconnect, host ending, Android Chrome and iOS Safari.
+The opt-in real-backend regression in `tests/host-live.spec.ts` verifies the actual seeded doctor appointment, its patient popover, facility call redirect, appointment details, native encounter form opening in a separate tab, and Schedule Management. It does not mock API responses, reset the database, change appointment status, or join a Zoom call. Run the explicit local fixture first (requires the existing core `care-doctor` fixture user):
+
+```sh
+/Users/gigin/care_scaffold/.agent/compose.sh exec backend python manage.py shell -c 'from care_zoom.tests.seed_local import seed; seed()'
+CARE_FE_URL=http://localhost:25417 PLAYWRIGHT_CHANNEL=chrome npm run test:host:live
+```
+
+The test signs in as `care-doctor` with the core development password; set `CARE_TEST_PASSWORD` if that local password was changed. Browser traces are disabled for this mode so authentication is not saved in trace artifacts. The usual `test:host` command continues to run only the mocked suite.
+
+The entry-point and login flows were verified with a placeholder before the SDK was integrated. Real two-party Zoom media and automatic tab-switch PiP remain acceptance checks; mocked SDK tests do not establish them. Acceptance still requires separate doctor/patient browser sessions, real audio/video, reconnect, host ending, Android Chrome and iOS Safari.
 
 ## Integration details
 
@@ -67,4 +83,4 @@ Plugin API metadata and tokens are fetched from `/api/care_zoom/{otp/}appointmen
 
 All plugin styles are scoped below `.care-zoom-container`; the plugin does not ship global preflight. Translation keys use `zoom__` in `public/locale/en.json`. The roughly 1 MB Zoom SDK JavaScript bundle is a separate lazy chunk, absent from the initial manifest payload.
 
-Pinned-host differences from older scaffold examples are tracked in [care_scaffold issue #5](https://github.com/ohcnetwork/care_scaffold/issues/5). This repository remains independent of the scaffold and both core submodules.
+Pinned-host differences from older scaffold examples are tracked in [care_scaffold issue #5](https://github.com/ohcnetwork/care_scaffold/issues/5). This repository remains independent of the scaffold and both independent core checkouts.

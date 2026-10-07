@@ -82,6 +82,7 @@ const info = {
   can_join: false,
   caller_role: "host",
   configured: false,
+  staff_context: { facility_id: facilityId, patient_id: patientId },
   reason: "Zoom credentials are not configured.",
 };
 async function apiFixtures(page: Page) {
@@ -104,6 +105,7 @@ async function apiFixtures(page: Page) {
     else if (path.includes("/care_zoom/"))
       data = {
         ...info,
+        staff_context: path.includes("/otp/") ? undefined : info.staff_context,
         caller_role: path.includes("/otp/") ? "participant" : "host",
       };
     else if (path.endsWith("/otp/patient/"))
@@ -160,7 +162,11 @@ test("public UUID route preserves core login and staff login returns to the same
   await page.locator("#username").fill("zoom-test-doctor");
   await page.locator("#password").fill("fixture-password");
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(new RegExp(`/teleconsult/${bookingId}$`));
+  await expect(page).toHaveURL(
+    new RegExp(
+      `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}/video$`,
+    ),
+  );
   await expect(
     page.getByText(`${patient.name} · Dr Test Doctor`),
   ).toBeVisible();
@@ -216,6 +222,20 @@ test("staff appointment card keeps core patient/actions/tags and adds Join/Copy"
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /Add tags/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Check-In/i })).toBeVisible();
+  await page.getByRole("link", { name: "Join video call" }).click();
+  await expect(page).toHaveURL(new RegExp(`/appointments/${bookingId}/video$`));
+  await expect(
+    page.getByText("Existing appointment notes stay visible"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Start consultation", exact: true }),
+  ).toHaveAttribute("target", "_blank");
+  await expect(
+    page.getByRole("link", { name: "Start consultation", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}?from_queue=true`,
+  );
 });
 test("unrelated public routes retain the core login", async ({ page }) => {
   await page.goto("/login");

@@ -4,6 +4,24 @@ const CallPage = lazy(() => import("./pages/CallPage"));
 const manifest = {
   plugin: "care_zoom_fe",
   routes: {
+    "/facility/:facilityId/patient/:patientId/appointments/:bookingId/video": ({
+      bookingId,
+      facilityId,
+      patientId,
+    }: {
+      bookingId: string;
+      facilityId: string;
+      patientId: string;
+    }) => (
+      <Suspense fallback={null}>
+        <CallPage
+          key={`${facilityId}:${patientId}:${bookingId}`}
+          bookingId={bookingId}
+          facilityId={facilityId}
+          patientId={patientId}
+        />
+      </Suspense>
+    ),
     "/teleconsult/:bookingId": ({ bookingId }: { bookingId: string }) => (
       <Suspense fallback={null}>
         <CallPage key={bookingId} bookingId={bookingId} />

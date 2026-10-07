@@ -5,6 +5,8 @@ type Props = {
   children?: ReactNode;
   tagEntityType?: string;
   tagEntityId?: string;
+  facilityId?: string;
+  patient?: { id: string };
   [key: string]: unknown;
 };
 export default function PatientInfoCard({
@@ -17,7 +19,11 @@ export default function PatientInfoCard({
       {children}
       {props.tagEntityType === "appointment" &&
         typeof props.tagEntityId === "string" && (
-          <AppointmentActions bookingId={props.tagEntityId} />
+          <AppointmentActions
+            bookingId={props.tagEntityId}
+            facilityId={props.facilityId}
+            patientId={props.patient?.id}
+          />
         )}
     </Base>
   );

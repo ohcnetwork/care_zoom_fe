@@ -19,7 +19,12 @@ import {
   getJoinToken,
   getVideoAppointments,
 } from "../src/utils/api";
-import { callUrl, staffLoginUrl, teleconsultMatch } from "../src/utils/routes";
+import {
+  callUrl,
+  staffCallPath,
+  staffLoginUrl,
+  teleconsultMatch,
+} from "../src/utils/routes";
 import type { AppointmentInfo, CareAuth } from "../src/types";
 import locale from "../public/locale/en.json";
 vi.mock("../src/components/ZoomCall", () => ({
@@ -80,6 +85,19 @@ afterEach(() => {
 });
 
 describe("pinned host entry points before SDK integration", () => {
+  it("registers facility appointment calls while keeping shared links patient-facing", () => {
+    expect(
+      manifest.routes[
+        "/facility/:facilityId/patient/:patientId/appointments/:bookingId/video"
+      ],
+    ).toBeTypeOf("function");
+    expect(staffCallPath(id, "facility", "patient")).toBe(
+      `/facility/facility/patient/patient/appointments/${id}/video`,
+    );
+    expect(callUrl(id)).toBe(
+      new URL(`/teleconsult/${id}`, window.location.origin).href,
+    );
+  });
   it("preserves PatientInfoCard props, children and non-appointment usage", () => {
     const base = vi.fn(({ children }) => (
       <div data-testid="core-card">{children}</div>
@@ -104,6 +122,8 @@ describe("pinned host entry points before SDK integration", () => {
         __base={({ children }) => <div>{children as React.ReactNode}</div>}
         tagEntityType="appointment"
         tagEntityId={id}
+        facilityId="facility"
+        patient={{ id: "patient" }}
       >
         <span>Original appointment controls</span>
       </PatientInfoCard>,
@@ -114,7 +134,7 @@ describe("pinned host entry points before SDK integration", () => {
       screen
         .getByRole("link", { name: "Join video call" })
         .getAttribute("href"),
-    ).toBe(`/teleconsult/${id}`);
+    ).toBe(`/facility/facility/patient/patient/appointments/${id}/video`);
   });
   it("other booking readers get copy without practitioner join", async () => {
     vi.mocked(fetch).mockResolvedValue(

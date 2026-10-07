@@ -2,25 +2,35 @@ import { useState } from "react";
 import { Copy, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppointment } from "../hooks/useAppointment";
-import { callPath, callUrl } from "../utils/routes";
+import { callPath, callUrl, staffCallPath } from "../utils/routes";
 import { Button } from "./ui/button";
 import Page from "./Page";
 export default function AppointmentActions({
   bookingId,
+  facilityId,
+  patientId,
 }: {
   bookingId: string;
+  facilityId?: string;
+  patientId?: string;
 }) {
   const { t } = useTranslation();
   const { data } = useAppointment(bookingId, "staff");
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   if (!data?.eligible) return null;
+  const facility = data.staff_context?.facility_id ?? facilityId;
+  const patient = data.staff_context?.patient_id ?? patientId;
+  const staffPath =
+    facility && patient
+      ? staffCallPath(bookingId, facility, patient)
+      : callPath(bookingId);
   return (
     <Page>
       <div className="flex flex-wrap items-center gap-2">
         {data.caller_role === "host" && (
           <Button asChild size="sm">
-            <a href={callPath(bookingId)}>
+            <a href={staffPath}>
               <Video />
               {t("zoom__join")}
             </a>

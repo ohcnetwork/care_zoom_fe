@@ -3,6 +3,8 @@ import type {
   AuthKind,
   JoinToken,
   PublicAppointment,
+  StaffAppointment,
+  StaffFacility,
 } from "../types";
 
 export class ApiError extends Error {
@@ -69,6 +71,28 @@ export const getJoinToken = (id: string, kind: AuthKind) =>
     method: "POST",
     body: "{}",
   });
+export async function getStaffFacility(id: string, signal?: AbortSignal) {
+  if (!authToken("staff"))
+    throw new ApiError(401, "Staff authentication required");
+  return request<StaffFacility>(
+    `/api/v1/facility/${encodeURIComponent(id)}/`,
+    "staff",
+    { signal },
+  );
+}
+export async function getStaffAppointment(
+  facilityId: string,
+  bookingId: string,
+  signal?: AbortSignal,
+) {
+  if (!authToken("staff"))
+    throw new ApiError(401, "Staff authentication required");
+  return request<StaffAppointment>(
+    `/api/v1/facility/${encodeURIComponent(facilityId)}/appointments/${encodeURIComponent(bookingId)}/`,
+    "staff",
+    { signal },
+  );
+}
 export const sendOtp = (phone: string) =>
   request("/api/v1/otp/send/", null, {
     method: "POST",

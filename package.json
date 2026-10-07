@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:host": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:host:live": "CARE_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.2",

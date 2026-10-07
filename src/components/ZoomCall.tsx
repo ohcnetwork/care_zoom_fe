@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type ZoomVideo from "@zoom/videosdk";
 import type {
@@ -6,8 +15,21 @@ import type {
   LocalAudioTrack,
   LocalVideoTrack,
 } from "@zoom/videosdk";
-import { Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-react";
+import {
+  Mic,
+  MicOff,
+  Maximize2,
+  PhoneOff,
+  PictureInPicture2,
+  Settings2,
+  Signal,
+  Users,
+  Video,
+  VideoOff,
+  WifiOff,
+} from "lucide-react";
 import type { JoinToken } from "../types";
+import { useCallPictureInPicture } from "../hooks/useCallPictureInPicture";
 import { Button } from "./ui/button";
 
 type SDK = typeof ZoomVideo;
@@ -18,6 +40,7 @@ type Tile = {
   figure: HTMLElement;
   container: HTMLElement;
   caption: HTMLElement;
+  avatar: HTMLElement;
   attached: boolean;
 };
 type Runtime = {
@@ -41,9 +64,59 @@ type Phase =
 // The SDK owns one client per browser page. A new mount must wait for the previous teardown.
 let previousCleanup: Promise<void> = Promise.resolve();
 
+const sdkErrorTypes = new Set([
+  "INVALID_OPERATION",
+  "INTERNAL_ERROR",
+  "OPERATION_TIMEOUT",
+  "INSUFFICIENT_PRIVILEGES",
+  "IMPROPER_MEETING_STATE",
+  "INVALID_PARAMETERS",
+  "OPERATION_LOCKED",
+  "OPERATION_CANCELLED",
+  "JOIN_MEETING_FAILED",
+]);
+function reportFailure(operation: string, cause: unknown) {
+  const detail = cause as { type?: string; errorCode?: number } | null;
+  // Never log SDK payloads, reasons, tokens or participant information.
+  console.error("[care_zoom] Operation failed", {
+    operation,
+    ...(detail?.type && sdkErrorTypes.has(detail.type)
+      ? { type: detail.type }
+      : {}),
+    ...(Number.isInteger(detail?.errorCode)
+      ? { errorCode: detail!.errorCode }
+      : {}),
+    ...(cause instanceof Error &&
+    [
+      "Error",
+      "TypeError",
+      "RangeError",
+      "NotAllowedError",
+      "NotFoundError",
+      "NotReadableError",
+      "AbortError",
+      "SecurityError",
+      "InvalidStateError",
+      "OverconstrainedError",
+      "NotSupportedError",
+    ].includes(cause.name)
+      ? { name: cause.name }
+      : {}),
+  });
+}
 async function checked(result: Promise<unknown>) {
   const value = await result;
-  if (value) throw value; // SDK calls can resolve with an ExecutedFailure instead of rejecting.
+  // SDK 2.5.0 join resolves with a participant, despite its declared empty-string result.
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    typeof value.type === "string" &&
+    sdkErrorTypes.has(value.type) &&
+    "reason" in value &&
+    typeof value.reason === "string"
+  )
+    throw value;
 }
 async function stopPreview(runtime: Runtime) {
   if (runtime.meter) clearInterval(runtime.meter);
@@ -104,12 +177,30 @@ function isMobileCamera() {
   );
 }
 
+function initials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toLocaleUpperCase();
+}
+
+export type ZoomCallHandle = { openPictureInPicture: () => Promise<void> };
+
 export default function ZoomCall({
+  ref,
   requestToken,
   onExit,
+  patientName,
+  practitionerName,
 }: {
+  ref?: Ref<ZoomCallHandle>;
   requestToken: () => Promise<JoinToken>;
   onExit?: () => void;
+  patientName?: string;
+  practitionerName?: string;
 }) {
   const { t } = useTranslation();
   const runtime = useRef<Runtime | undefined>(undefined);
@@ -131,11 +222,34 @@ export default function ZoomCall({
   const [volume, setVolume] = useState(0);
   const [host, setHost] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const deviceSettingsId = useId();
+  const [startedAt, setStartedAt] = useState<number>();
+  const [elapsed, setElapsed] = useState(0);
   const connected = phase === "connected" || phase === "reconnecting";
+  const pictureInPicture = useCallPictureInPicture(connected);
+  useImperativeHandle(
+    ref,
+    () => ({ openPictureInPicture: pictureInPicture.open }),
+    [pictureInPicture.open],
+  );
   const speakerSelection =
     typeof AudioContext !== "undefined" &&
     "setSinkId" in AudioContext.prototype;
   const mobileCamera = isMobileCamera();
+  const compact = pictureInPicture.active;
+  const duration = `${Math.floor(elapsed / 60)
+    .toString()
+    .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`;
+  const callName = patientName || t("zoom__call_title");
+
+  useEffect(() => {
+    if (!connected || startedAt === undefined) return;
+    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [connected, startedAt]);
 
   function errorKey(cause: unknown, fallback = "zoom__media_failed") {
     const detail = cause as {
@@ -157,6 +271,7 @@ export default function ZoomCall({
     return fallback;
   }
   function run(
+    operation: string,
     action: (current: Runtime) => Promise<void>,
     failure?: string,
     background = false,
@@ -172,7 +287,10 @@ export default function ZoomCall({
     });
     current.queue = task
       .catch((cause) => {
-        if (!current.disposed) setError(errorKey(cause, failure));
+        const afterJoin = failure === "zoom__join_failed" && current.joined;
+        reportFailure(afterJoin ? "refresh-media" : operation, cause);
+        if (!current.disposed)
+          setError(errorKey(cause, afterJoin ? "zoom__media_failed" : failure));
       })
       .finally(() => {
         if (!current.disposed && !background) setBusy(false);
@@ -209,7 +327,13 @@ export default function ZoomCall({
     setCameraOn(self.bVideoOn);
     setAudioOn(Boolean(self.audio));
     setMuted(self.muted ?? true);
-    const shown = users.slice(0, current.stream.getMaxRenderableVideos());
+    const shown = [
+      ...users.filter((user) => user.userId !== self.userId),
+      ...users.filter((user) => user.userId === self.userId),
+    ].slice(0, current.stream.getMaxRenderableVideos());
+    gallery.current.dataset.remotes = String(
+      shown.filter((user) => user.userId !== self.userId).length,
+    );
     for (const [id, tile] of current.tiles) {
       if (!shown.some((user) => user.userId === id)) {
         if (tile.attached) await detach(current, id);
@@ -222,23 +346,37 @@ export default function ZoomCall({
       let tile = current.tiles.get(user.userId);
       if (!tile) {
         const figure = document.createElement("figure");
-        figure.className =
-          "overflow-hidden rounded-lg border border-gray-200 bg-gray-100";
+        figure.className = "zoom-participant";
         const container = document.createElement("video-player-container");
-        Object.assign(container.style, {
-          display: "block",
-          width: "100%",
-          aspectRatio: "16/9",
-          background: "#111827",
-        });
+        container.className = "zoom-participant-video";
+        const placeholder = document.createElement("div");
+        placeholder.className = "zoom-participant-placeholder";
+        const avatar = document.createElement("span");
+        avatar.className = "zoom-avatar";
+        const cameraOff = document.createElement("span");
+        cameraOff.textContent = t("zoom__camera_off");
+        placeholder.append(avatar, cameraOff);
         const caption = document.createElement("figcaption");
-        caption.className = "px-3 py-2 text-sm font-medium";
-        figure.append(container, caption);
-        gallery.current.append(figure);
-        tile = { figure, container, caption, attached: false };
+        caption.className = "zoom-participant-caption";
+        figure.append(placeholder, container, caption);
+        gallery.current.insertBefore(
+          figure,
+          user.userId === self.userId
+            ? null
+            : gallery.current.querySelector('[data-self="true"]'),
+        );
+        tile = { figure, container, caption, avatar, attached: false };
         current.tiles.set(user.userId, tile);
       }
-      tile.caption.textContent = `${user.displayName}${user.userId === self.userId ? ` (${t("zoom__you")})` : ""}${user.bVideoOn ? "" : ` · ${t("zoom__camera_off")}`}`;
+      tile.figure.dataset.self = String(user.userId === self.userId);
+      tile.figure.dataset.video = String(user.bVideoOn);
+      tile.figure.dataset.muted = String(!user.audio || user.muted);
+      tile.avatar.textContent = initials(user.displayName);
+      tile.avatar.setAttribute("aria-hidden", "true");
+      tile.caption.textContent =
+        user.userId === self.userId
+          ? `${t("zoom__you")} · ${user.displayName}`
+          : user.displayName;
       tile.container.setAttribute("aria-label", user.displayName);
       if (user.bVideoOn && !tile.attached) {
         const player = await current.stream.attachVideo(user.userId, 2);
@@ -263,7 +401,8 @@ export default function ZoomCall({
     let cancelled = false;
     let current: Runtime | undefined;
     const predecessor = previousCleanup;
-    const devicesChanged = () => run(refreshDevices, undefined, true);
+    const devicesChanged = () =>
+      run("refresh-devices", refreshDevices, undefined, true);
     setPhase("loading");
     setBusy(false);
     setError("");
@@ -274,6 +413,9 @@ export default function ZoomCall({
     setAudioOn(false);
     setMuted(true);
     setVolume(0);
+    setSettingsOpen(false);
+    setStartedAt(undefined);
+    setElapsed(0);
     const boot = (async () => {
       await predecessor;
       const { default: sdk } = await import("@zoom/videosdk");
@@ -300,7 +442,8 @@ export default function ZoomCall({
         }),
       );
       if (cancelled) return;
-      const enqueueRefresh = () => run(refreshParticipants, undefined, true);
+      const enqueueRefresh = () =>
+        run("refresh-participants", refreshParticipants, undefined, true);
       const connection = (event: ConnectionChangePayload) => {
         if (!current || current.disposed) return;
         if (event.state === "Reconnecting") {
@@ -317,7 +460,7 @@ export default function ZoomCall({
               ? "zoom__ended_by_host"
               : "zoom__disconnected",
           );
-          run(async (active) => {
+          run("disconnect", async (active) => {
             await release(active);
             if (!active.unmounted) setBusy(false);
           });
@@ -348,7 +491,8 @@ export default function ZoomCall({
       navigator.mediaDevices?.addEventListener("devicechange", devicesChanged);
       await refreshDevices(current);
       if (!cancelled) setPhase("prejoin");
-    })().catch(async () => {
+    })().catch(async (cause) => {
+      reportFailure("initialize", cause);
       if (!cancelled) {
         setPhase("ended");
         setError("zoom__sdk_failed");
@@ -381,7 +525,7 @@ export default function ZoomCall({
   }, [attempt]);
 
   function toggleCamera() {
-    run(async (current) => {
+    run("camera", async (current) => {
       if (current.joined) {
         await checked(
           cameraOn
@@ -410,7 +554,7 @@ export default function ZoomCall({
     });
   }
   function toggleMicCheck() {
-    run(async (current) => {
+    run("microphone-check", async (current) => {
       if (current.microphone) {
         await checked(current.microphone.stop());
         current.microphone = undefined;
@@ -449,53 +593,59 @@ export default function ZoomCall({
     });
   }
   function join() {
-    run(async (current) => {
-      const token = await requestToken(); // Keep the JWT only in this action and the SDK's memory.
-      if (current.disposed) return;
-      setPhase("joining");
-      await stopPreview(current);
-      if (current.disposed) return;
-      setCheckingMic(false);
-      setVolume(0);
-      try {
-        await checked(
-          current.client.join(
-            token.session_name,
-            token.token,
-            token.display_name,
-          ),
-        );
-      } catch (cause) {
-        if (!current.disposed) {
-          setPhase("prejoin");
-          setCameraOn(false);
-        }
-        throw cause;
-      }
-      current.joined = true;
-      current.stream = current.client.getMediaStream();
-      if (current.disposed) return;
-      setHost(token.role === "host");
-      setPhase("connected");
-      setNotice("zoom__enable_audio_hint");
-      if (cameraOn) {
+    run(
+      "join",
+      async (current) => {
+        const token = await requestToken(); // Keep the JWT only in this action and the SDK's memory.
+        if (current.disposed) return;
+        setPhase("joining");
+        await stopPreview(current);
+        if (current.disposed) return;
+        setCheckingMic(false);
+        setVolume(0);
         try {
           await checked(
-            current.stream.startVideo({ cameraId: cameraId || undefined }),
+            current.client.join(
+              token.session_name,
+              token.token,
+              token.display_name,
+            ),
           );
         } catch (cause) {
           if (!current.disposed) {
+            setPhase("prejoin");
             setCameraOn(false);
-            setError(errorKey(cause));
+          }
+          throw cause;
+        }
+        current.joined = true;
+        current.stream = current.client.getMediaStream();
+        if (current.disposed) return;
+        setHost(token.role === "host");
+        setStartedAt(Date.now());
+        setPhase("connected");
+        setNotice("zoom__enable_audio_hint");
+        if (cameraOn) {
+          try {
+            await checked(
+              current.stream.startVideo({ cameraId: cameraId || undefined }),
+            );
+          } catch (cause) {
+            reportFailure("start-video", cause);
+            if (!current.disposed) {
+              setCameraOn(false);
+              setError(errorKey(cause));
+            }
           }
         }
-      }
-      await refreshParticipants(current);
-      await refreshDevices(current);
-    }, "zoom__join_failed");
+        await refreshParticipants(current);
+        await refreshDevices(current);
+      },
+      "zoom__join_failed",
+    );
   }
   function toggleAudio() {
-    run(async (current) => {
+    run("audio", async (current) => {
       if (!audioOn)
         await checked(
           current.stream!.startAudio({
@@ -514,7 +664,7 @@ export default function ZoomCall({
     });
   }
   function changeDevice(kind: "camera" | "microphone" | "speaker", id: string) {
-    run(async (current) => {
+    run("change-device", async (current) => {
       const deviceKind =
         kind === "camera"
           ? "videoinput"
@@ -557,18 +707,22 @@ export default function ZoomCall({
     });
   }
   function leave(end = false) {
-    run(async (current) => {
-      if (end && !current.client.isHost())
-        await checked(current.client.reclaimHost());
-      if (end) await checked(current.client.leave(true));
-      else await current.client.leave(false).catch(() => undefined);
-      current.joined = false;
-      await release(current);
-      if (current.unmounted) return;
-      setPhase("ended");
-      setNotice(end ? "zoom__call_ended" : "zoom__call_left");
-      setBusy(false);
-    }, "zoom__leave_failed");
+    run(
+      "leave",
+      async (current) => {
+        if (end && !current.client.isHost())
+          await checked(current.client.reclaimHost());
+        if (end) await checked(current.client.leave(true));
+        else await current.client.leave(false).catch(() => undefined);
+        current.joined = false;
+        await release(current);
+        if (current.unmounted) return;
+        setPhase("ended");
+        setNotice(end ? "zoom__call_ended" : "zoom__call_left");
+        setBusy(false);
+      },
+      "zoom__leave_failed",
+    );
   }
   const cameraOptions = mobileCamera
     ? [
@@ -603,135 +757,280 @@ export default function ZoomCall({
       </label>
     );
   }
-  return (
-    <section className="space-y-4" aria-label={t("zoom__call_controls")}>
-      {error && (
-        <p
-          role="alert"
-          className="rounded-md border border-red-200 bg-red-50 p-3 text-red-800"
-        >
-          {t(error)}
+  const deviceSettings = (
+    <div id={deviceSettingsId} className="zoom-device-settings">
+      {deviceSelect("camera", cameraId, cameraOptions)}
+      {deviceSelect(
+        "microphone",
+        microphoneId,
+        devices.filter((device) => device.kind === "audioinput"),
+      )}
+      {speakerSelection ? (
+        deviceSelect(
+          "speaker",
+          speakerId,
+          devices.filter((device) => device.kind === "audiooutput"),
+        )
+      ) : (
+        <p className="self-end text-sm text-gray-600">
+          {t("zoom__system_speaker")}
         </p>
       )}
-      {notice && (
-        <p role="status" className="rounded-md bg-gray-100 p-3">
-          {t(notice)}
-        </p>
-      )}
-      {phase === "loading" || phase === "joining" ? (
-        <p role="status">
-          {t(phase === "loading" ? "zoom__sdk_loading" : "zoom__connecting")}
-        </p>
-      ) : null}
-      {phase === "prejoin" && (
-        <>
-          <h3 className="text-lg font-semibold">{t("zoom__prejoin")}</h3>
-          <p className="text-sm text-gray-600">{t("zoom__prejoin_help")}</p>
-          <video
-            ref={preview}
-            muted
-            autoPlay
-            playsInline
-            className="aspect-video w-full rounded-lg bg-gray-900"
-            aria-label={t("zoom__camera_preview")}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy} onClick={toggleCamera}>
-              {cameraOn ? <VideoOff /> : <Video />}
-              {t(cameraOn ? "zoom__stop_camera" : "zoom__check_camera")}
-            </Button>
-            <Button variant="outline" disabled={busy} onClick={toggleMicCheck}>
-              <Mic />
-              {t(checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic")}
-            </Button>
-          </div>
-          {checkingMic && (
-            <label className="block text-sm">
-              {t("zoom__mic_level")}
-              <progress
-                className="ml-2 align-middle"
-                value={volume}
-                max={100}
-              />
-            </label>
-          )}
-        </>
-      )}
-      <div
-        ref={gallery}
-        className={
-          connected ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "hidden"
+    </div>
+  );
+  function control(
+    label: string,
+    icon: ReactNode,
+    onClick: () => void,
+    options: {
+      off?: boolean;
+      danger?: boolean;
+      disabled?: boolean;
+      className?: string;
+      expanded?: boolean;
+    } = {},
+  ) {
+    return (
+      <button
+        type="button"
+        title={t(label)}
+        className={`zoom-control ${options.off ? "zoom-control-off" : ""} ${options.danger ? "zoom-control-danger" : ""} ${options.className || ""}`}
+        disabled={options.disabled}
+        aria-expanded={options.expanded}
+        aria-controls={
+          options.expanded === undefined ? undefined : deviceSettingsId
         }
-      />
-      {connected && (
-        <>
-          <p className="text-sm text-gray-600" role="status">
-            {t("zoom__participants", { count: participantCount })}
+        onClick={onClick}
+      >
+        {icon}
+        <span className="sr-only">{t(label)}</span>
+      </button>
+    );
+  }
+  const audioLabel = !audioOn
+    ? "zoom__enable_audio"
+    : muted
+      ? "zoom__unmute"
+      : "zoom__mute";
+  const activeMode = pictureInPicture.active ? "native" : "full";
+  const call = (
+    <section
+      className="zoom-call"
+      data-mode={activeMode}
+      aria-label={t("zoom__call_controls")}
+    >
+      <div className="zoom-call-feedback">
+        {error && (
+          <p role="alert" className="zoom-feedback-error">
+            {t(error)}
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={audioOn && !muted ? "outline" : "primary"}
-              disabled={busy || phase === "reconnecting"}
-              onClick={toggleAudio}
-            >
-              {audioOn && !muted ? <Mic /> : <MicOff />}
-              {t(
-                !audioOn
-                  ? "zoom__enable_audio"
-                  : muted
-                    ? "zoom__unmute"
-                    : "zoom__mute",
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy || phase === "reconnecting"}
-              onClick={toggleCamera}
-            >
-              {cameraOn ? <Video /> : <VideoOff />}
-              {t(cameraOn ? "zoom__stop_camera" : "zoom__start_camera")}
-            </Button>
-            <Button variant="outline" disabled={busy} onClick={() => leave()}>
-              <PhoneOff />
-              {t("zoom__leave")}
-            </Button>
-            {host && (
-              <Button
-                variant="destructive"
-                disabled={busy || phase === "reconnecting"}
-                onClick={() => leave(true)}
-              >
-                {t("zoom__end_everyone")}
-              </Button>
-            )}
-          </div>
-        </>
-      )}
-      {(phase === "prejoin" || connected) && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {deviceSelect("camera", cameraId, cameraOptions)}
-          {deviceSelect(
-            "microphone",
-            microphoneId,
-            devices.filter((device) => device.kind === "audioinput"),
-          )}
-          {speakerSelection ? (
-            deviceSelect(
-              "speaker",
-              speakerId,
-              devices.filter((device) => device.kind === "audiooutput"),
-            )
-          ) : (
-            <p className="self-end text-sm text-gray-600">
-              {t("zoom__system_speaker")}
-            </p>
-          )}
+        )}
+        {notice && (
+          <p role="status" className="zoom-feedback-notice">
+            {t(notice)}
+          </p>
+        )}
+        {pictureInPicture.failed && (
+          <p role="alert" className="zoom-feedback-error">
+            {t("zoom__picture_in_picture_failed")}
+          </p>
+        )}
+      </div>
+      {(phase === "loading" || phase === "joining") && (
+        <div className="zoom-call-loading" role="status">
+          <Video aria-hidden="true" />
+          {t(phase === "loading" ? "zoom__sdk_loading" : "zoom__connecting")}
         </div>
       )}
       {phase === "prejoin" && (
-        <Button disabled={busy} onClick={join}>
-          {t("zoom__join")}
-        </Button>
+        <div className="zoom-prejoin">
+          <div className="zoom-prejoin-heading">
+            <h3 className="text-lg font-semibold">{t("zoom__prejoin")}</h3>
+            <p className="text-sm text-gray-600">{t("zoom__prejoin_help")}</p>
+          </div>
+          <div className="zoom-preview-stage">
+            <video
+              ref={preview}
+              muted
+              autoPlay
+              playsInline
+              className="zoom-preview"
+              aria-label={t("zoom__camera_preview")}
+            />
+            {!cameraOn && (
+              <div className="zoom-preview-placeholder">
+                <span className="zoom-avatar">
+                  <VideoOff aria-hidden="true" />
+                </span>
+                <span>{t("zoom__camera_off")}</span>
+              </div>
+            )}
+            <div className="zoom-preview-controls">
+              {control(
+                cameraOn ? "zoom__stop_camera" : "zoom__check_camera",
+                cameraOn ? <Video /> : <VideoOff />,
+                toggleCamera,
+                { off: !cameraOn, disabled: busy },
+              )}
+              {control(
+                checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic",
+                checkingMic ? <Mic /> : <MicOff />,
+                toggleMicCheck,
+                { off: !checkingMic, disabled: busy },
+              )}
+            </div>
+          </div>
+          {checkingMic && (
+            <label className="zoom-mic-meter">
+              {t("zoom__mic_level")}
+              <progress value={volume} max={100} />
+            </label>
+          )}
+          {deviceSettings}
+          <div className="zoom-prejoin-footer">
+            <span>
+              <Video size={16} aria-hidden="true" />
+              {patientName || t("zoom__call_title")}
+            </span>
+            <Button disabled={busy} onClick={join}>
+              <Video />
+              {t("zoom__join")}
+            </Button>
+          </div>
+        </div>
+      )}
+      <div className={connected ? "zoom-connected" : "hidden"}>
+        <div className="zoom-stage-with-toolbar">
+          <div className="zoom-stage">
+            <div className="zoom-waiting" hidden={participantCount > 1}>
+              <span className="zoom-avatar" aria-hidden="true">
+                {patientName ? initials(patientName) : <Users />}
+              </span>
+              <strong>{callName}</strong>
+              <span>{t("zoom__waiting_for_others")}</span>
+              {practitionerName && (
+                <span className="zoom-practitioner">{practitionerName}</span>
+              )}
+            </div>
+            <div ref={gallery} className="zoom-gallery" />
+            <div className="zoom-stage-status">
+              <span className="zoom-name-pill" title={callName}>
+                {callName}
+              </span>
+              <span className="zoom-duration">
+                <span
+                  className={
+                    phase === "reconnecting"
+                      ? "zoom-status-dot zoom-status-reconnecting"
+                      : "zoom-status-dot"
+                  }
+                />
+                <time aria-label={t("zoom__call_duration")}>{duration}</time>
+              </span>
+              <span className="zoom-connection">
+                {phase === "reconnecting" ? <WifiOff /> : <Signal />}
+                {t(
+                  phase === "reconnecting"
+                    ? "zoom__connection_reconnecting"
+                    : "zoom__connection_connected",
+                )}
+              </span>
+            </div>
+            {(!audioOn || muted) && (
+              <span className="zoom-muted-badge">
+                <MicOff size={13} aria-hidden="true" />
+                {t(
+                  !audioOn
+                    ? "zoom__audio_not_connected"
+                    : "zoom__you_are_muted",
+                )}
+              </span>
+            )}
+          </div>
+          {connected && (
+            <div className="zoom-call-toolbar">
+              <div className="zoom-main-controls">
+                {control(
+                  audioLabel,
+                  audioOn && !muted ? <Mic /> : <MicOff />,
+                  toggleAudio,
+                  {
+                    off: !audioOn || muted,
+                    disabled: busy || phase === "reconnecting",
+                  },
+                )}
+                {control(
+                  cameraOn ? "zoom__stop_camera" : "zoom__start_camera",
+                  cameraOn ? <Video /> : <VideoOff />,
+                  toggleCamera,
+                  {
+                    off: !cameraOn,
+                    disabled: busy || phase === "reconnecting",
+                    className: "zoom-camera-control",
+                  },
+                )}
+                {pictureInPicture.supported &&
+                  control(
+                    pictureInPicture.active
+                      ? "zoom__return_call_to_tab"
+                      : "zoom__picture_in_picture",
+                    pictureInPicture.active ? (
+                      <Maximize2 />
+                    ) : (
+                      <PictureInPicture2 />
+                    ),
+                    () =>
+                      pictureInPicture.active
+                        ? pictureInPicture.close()
+                        : void pictureInPicture.open(),
+                  )}
+                {activeMode === "full" &&
+                  control(
+                    "zoom__device_settings",
+                    <Settings2 />,
+                    () => setSettingsOpen(!settingsOpen),
+                    { off: settingsOpen, expanded: settingsOpen },
+                  )}
+                {control("zoom__leave", <PhoneOff />, () => leave(), {
+                  danger: true,
+                  disabled: busy,
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        {connected && (
+          <div className="zoom-call-footer">
+            <span className="zoom-participant-count">
+              <Users size={14} aria-hidden="true" />
+              {t("zoom__participants", { count: participantCount })}
+            </span>
+            <div>
+              {host && (
+                <button
+                  className="zoom-end-action"
+                  type="button"
+                  disabled={busy || phase === "reconnecting"}
+                  onClick={() => leave(true)}
+                >
+                  {t("zoom__end_everyone")}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {settingsOpen && !compact && deviceSettings}
+      </div>
+      {connected && !compact && (
+        <p className="zoom-pip-help">
+          {t(
+            pictureInPicture.supported
+              ? window.location.protocol === "http:"
+                ? "zoom__picture_in_picture_http_help"
+                : "zoom__picture_in_picture_help"
+              : "zoom__picture_in_picture_unavailable",
+          )}
+        </p>
       )}
       {error === "zoom__session_expired" && phase !== "ended" && onExit && (
         <Button variant="outline" onClick={onExit}>
@@ -739,20 +1038,59 @@ export default function ZoomCall({
         </Button>
       )}
       {phase === "ended" && (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={busy}
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            {t("zoom__return_prejoin")}
-          </Button>
-          {onExit && (
-            <Button variant="outline" onClick={onExit}>
-              {t("zoom__back_appointment")}
-            </Button>
+        <div className="zoom-call-ended">
+          <span className="zoom-avatar">
+            <PhoneOff aria-hidden="true" />
+          </span>
+          <h3>
+            {t(
+              startedAt === undefined
+                ? "zoom__call_not_started"
+                : "zoom__call_finished",
+            )}
+          </h3>
+          {startedAt !== undefined && (
+            <p>
+              {callName} · <time>{duration}</time>
+            </p>
           )}
+          <div>
+            <Button
+              disabled={busy}
+              onClick={() => setAttempt((value) => value + 1)}
+            >
+              {t("zoom__return_prejoin")}
+            </Button>
+            {onExit && (
+              <Button variant="outline" onClick={onExit}>
+                {t("zoom__back_appointment")}
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </section>
+  );
+  return (
+    <div className="zoom-call-layout" data-mode={activeMode}>
+      <div ref={pictureInPicture.mount} className="zoom-call-mount" />
+      {createPortal(call, pictureInPicture.container)}
+      {pictureInPicture.active && (
+        <div className="zoom-call-placeholder">
+          <span className="zoom-placeholder-icon">
+            <PictureInPicture2 aria-hidden="true" />
+          </span>
+          <h3>{t("zoom__call_continues")}</h3>
+          <p role="status">{t("zoom__call_in_picture_in_picture")}</p>
+          <p>
+            {callName} · <time>{duration}</time>
+          </p>
+          <Button variant="outline" onClick={pictureInPicture.close}>
+            <Maximize2 />
+            {t("zoom__return_call_to_tab")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

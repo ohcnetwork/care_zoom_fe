@@ -5,10 +5,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { StrictMode } from "react";
-import ZoomCall from "../src/components/ZoomCall";
+import { createRef, StrictMode } from "react";
+import ZoomCall, { type ZoomCallHandle } from "../src/components/ZoomCall";
 import locale from "../public/locale/en.json";
 import type { JoinToken } from "../src/types";
 
@@ -53,7 +54,7 @@ const mock = vi.hoisted(() => {
   };
   const client = {
     init: vi.fn(async () => ""),
-    join: vi.fn(async () => ""),
+    join: vi.fn(async () => user),
     leave: vi.fn(async () => ""),
     on: vi.fn((name, fn) => listeners.set(name, fn)),
     off: vi.fn((name) => listeners.delete(name)),
@@ -109,13 +110,38 @@ async function join() {
   fireEvent.click(screen.getByText("Join video call"));
   await screen.findByText("Enable audio");
 }
+function mockPictureInPicture() {
+  const pip = Object.assign(new EventTarget(), {
+    document: document.implementation.createHTMLDocument("Call"),
+    closed: false,
+    close: vi.fn(() => {
+      pip.closed = true;
+      pip.dispatchEvent(new Event("pagehide"));
+    }),
+  });
+  const requestWindow = vi.fn(async () => pip as unknown as Window);
+  vi.stubGlobal("documentPictureInPicture", { requestWindow });
+  const actions = new Map<string, (() => void) | null>();
+  const mediaSession = {
+    setActionHandler: vi.fn((action: string, handler: (() => void) | null) => {
+      actions.set(action, handler);
+    }),
+  };
+  vi.stubGlobal("navigator", {
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints,
+    mediaSession,
+  });
+  return { pip, requestWindow, actions, mediaSession };
+}
 beforeEach(() => {
   vi.clearAllMocks();
   requestToken.mockResolvedValue(token);
   mock.listeners.clear();
   Object.assign(mock.user, { bVideoOn: false, audio: "", muted: true });
   mock.client.init.mockResolvedValue("");
-  mock.client.join.mockResolvedValue("");
+  mock.client.join.mockResolvedValue(mock.user);
   mock.client.leave.mockResolvedValue("");
   mock.client.isHost.mockReturnValue(true);
   mock.camera.start.mockResolvedValue(undefined);
@@ -126,6 +152,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("isSecureContext", true);
   localStorage.clear();
+  vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterEach(async () => {
   cleanup();
@@ -133,6 +160,135 @@ afterEach(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+it("opens native PiP from a consultation action with working controls and restores without restarting media", async () => {
+  const { pip, requestWindow } = mockPictureInPicture();
+  const sheet = document.createElement("style");
+  sheet.textContent = ".care-zoom-container { color: green; }";
+  document.head.append(sheet);
+  const call = createRef<ZoomCallHandle>();
+  const view = render(
+    <>
+      <button onClick={() => void call.current?.openPictureInPicture()}>
+        Start consultation
+      </button>
+      <ZoomCall ref={call} requestToken={requestToken} />
+    </>,
+  );
+  await ready();
+  expect(screen.queryByText(locale.zoom__picture_in_picture)).toBeNull();
+  fireEvent.click(screen.getByText("Start consultation"));
+  expect(requestWindow).not.toHaveBeenCalled();
+  await join();
+  expect(window.location.protocol).toBe("http:");
+  expect(
+    screen.getByText(locale.zoom__picture_in_picture_http_help),
+  ).toBeTruthy();
+  const settings = screen.getByRole("button", { name: "Device settings" });
+  fireEvent.click(settings);
+  expect(settings.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByLabelText("Camera", { selector: "select" })).toBeTruthy();
+  fireEvent.click(settings);
+  expect(settings.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(screen.getByText("Start camera"));
+  await screen.findByText("Stop camera");
+  const player = document.querySelector("video-player");
+  expect(player).toBeTruthy();
+  fireEvent.click(screen.getByText("Start consultation"));
+  // Must request in the original click, before browser activation is lost.
+  expect(requestWindow).toHaveBeenCalledTimes(1);
+  await screen.findByText(locale.zoom__call_in_picture_in_picture);
+  expect(requestWindow).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByText("Start consultation"));
+  expect(requestWindow).toHaveBeenCalledTimes(1);
+  expect(pip.document.querySelector("video-player")).toBe(player);
+  expect(pip.document.head.textContent).toContain(sheet.textContent);
+  expect(pip.document.querySelector(".care-zoom-container")).toBeTruthy();
+  const floating = within(pip.document.body);
+  act(() => floating.getByText("Enable audio").click());
+  await waitFor(() => expect(floating.getByText("Mute")).toBeTruthy());
+  act(() => floating.getByText("Mute").click());
+  await waitFor(() => expect(floating.getByText("Unmute")).toBeTruthy());
+  expect(mock.stream.muteAudio).toHaveBeenCalledTimes(1);
+  act(() => pip.close());
+  await screen.findByText(locale.zoom__picture_in_picture);
+  expect(document.querySelector("video-player")).toBe(player);
+  expect(mock.client.join).toHaveBeenCalledTimes(1);
+  expect(mock.stream.attachVideo).toHaveBeenCalledTimes(1);
+  expect(mock.stream.detachVideo).not.toHaveBeenCalled();
+  expect(mock.client.leave).not.toHaveBeenCalled();
+  sheet.remove();
+  view.unmount();
+});
+
+it("registers browser automatic PiP only in a call and cleans up the window and action on hangup", async () => {
+  const { pip, actions, mediaSession } = mockPictureInPicture();
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  expect(mediaSession.setActionHandler).not.toHaveBeenCalled();
+  await join();
+  expect(actions.get("enterpictureinpicture")).toBeTypeOf("function");
+  await act(async () => actions.get("enterpictureinpicture")?.());
+  await screen.findByText(locale.zoom__call_in_picture_in_picture);
+  act(() => within(pip.document.body).getByText("Leave").click());
+  await screen.findByText("You left the call.");
+  expect(pip.close).toHaveBeenCalledTimes(1);
+  expect(actions.get("enterpictureinpicture")).toBeNull();
+  expect(mock.client.leave).toHaveBeenCalledTimes(1);
+});
+
+it("closes a PiP request resolving after the call unmounts without orphaning call media", async () => {
+  const { pip, requestWindow, actions } = mockPictureInPicture();
+  let openWindow!: (window: Window) => void;
+  requestWindow.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        openWindow = resolve;
+      }),
+  );
+  const view = render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText(locale.zoom__picture_in_picture));
+  view.unmount();
+  await act(async () => openWindow(pip as unknown as Window));
+  expect(pip.close).toHaveBeenCalledTimes(1);
+  expect(pip.document.body.childElementCount).toBe(0);
+  expect(actions.get("enterpictureinpicture")).toBeNull();
+  await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1));
+});
+
+it("keeps the call usable when native PiP is unavailable or a window request is denied", async () => {
+  const view = render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  expect(
+    screen.getByText(locale.zoom__picture_in_picture_unavailable),
+  ).toBeTruthy();
+  expect(screen.queryByText(locale.zoom__picture_in_picture)).toBeNull();
+  view.unmount();
+
+  const { requestWindow, mediaSession } = mockPictureInPicture();
+  mediaSession.setActionHandler.mockImplementation(() => {
+    throw new DOMException("Unsupported action", "NotSupportedError");
+  });
+  requestWindow.mockRejectedValueOnce(
+    new DOMException("Blocked", "NotAllowedError"),
+  );
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText(locale.zoom__picture_in_picture));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__picture_in_picture_failed,
+  );
+  expect(screen.getByText("Leave")).toBeTruthy();
+  fireEvent.click(screen.getByText(locale.zoom__picture_in_picture));
+  await screen.findByText(locale.zoom__call_in_picture_in_picture);
+  expect(requestWindow).toHaveBeenCalledTimes(2);
 });
 
 it("checks devices locally, mints only on Join, starts audio from a separate click and keeps the token out of storage", async () => {
@@ -241,7 +397,7 @@ it("only the server-authorized practitioner gets End and can reclaim host before
   expect(screen.queryByText("End for everyone")).toBeNull();
 });
 it("cleans an in-flight join on unmount and initializes a StrictMode mount only after cleanup", async () => {
-  let joined!: (result: string) => void;
+  let joined!: (result: typeof mock.user) => void;
   mock.client.join.mockImplementationOnce(
     () =>
       new Promise((resolve) => {
@@ -257,7 +413,7 @@ it("cleans an in-flight join on unmount and initializes a StrictMode mount only 
   fireEvent.click(screen.getByText("Join video call"));
   await waitFor(() => expect(mock.client.join).toHaveBeenCalled());
   view.unmount();
-  await act(async () => joined(""));
+  await act(async () => joined(mock.user));
   await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalled());
   expect(mock.client.leave).toHaveBeenCalled();
   expect(mock.listeners.size).toBe(0);
@@ -312,14 +468,20 @@ it("switches devices only when active and renders/detaches remote participants",
     expect(mock.stream.attachVideo).toHaveBeenCalledWith(2, 2),
   );
   expect(screen.getByText("Patient")).toBeTruthy();
+  const gallery = document.querySelector(".zoom-gallery")!;
+  expect(gallery.getAttribute("data-remotes")).toBe("1");
+  expect(gallery.firstElementChild?.getAttribute("data-self")).toBe("false");
+  expect(gallery.lastElementChild?.getAttribute("data-self")).toBe("true");
   act(() => mock.listeners.get("user-removed")?.([patient]));
   await waitFor(() => expect(screen.queryByText("Patient")).toBeNull());
+  expect(gallery.getAttribute("data-remotes")).toBe("0");
   expect(mock.stream.detachVideo).toHaveBeenCalledWith(2);
 });
 it("handles a resolved join failure without entering a session", async () => {
   mock.client.join.mockResolvedValueOnce({
     type: "INVALID_PARAMETERS",
     reason: "invalid token",
+    errorCode: 5013,
   } as never);
   render(<ZoomCall requestToken={requestToken} />);
   await ready();
@@ -330,6 +492,10 @@ it("handles a resolved join failure without entering a session", async () => {
   );
   expect(screen.getByText("Check your camera and microphone")).toBeTruthy();
   expect(screen.queryByText("End for everyone")).toBeNull();
+  expect(console.error).toHaveBeenCalledExactlyOnceWith(
+    "[care_zoom] Operation failed",
+    { operation: "join", type: "INVALID_PARAMETERS", errorCode: 5013 },
+  );
 });
 
 it("tears down only once when Closed fires during Leave, then unmounts", async () => {
@@ -415,4 +581,53 @@ it("detaches an in-flight participant render before releasing an unmounted call"
   await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1));
   expect(node.isConnected).toBe(false);
   expect(mock.stream.detachVideo).toHaveBeenCalledWith(2);
+});
+
+it("accepts the participant object returned by a successful SDK join", async () => {
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  expect(screen.getByText("End for everyone")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(console.error).not.toHaveBeenCalled();
+});
+
+it("keeps a successful session open when rendering fails and logs only safe diagnostics", async () => {
+  const failure = new TypeError(
+    "private participant details and token: secret-memory-only",
+  );
+  mock.client.getAllUser.mockImplementationOnce(() => {
+    throw failure;
+  });
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__media_failed,
+  );
+  expect(screen.getByText("End for everyone")).toBeTruthy();
+  expect(console.error).toHaveBeenCalledExactlyOnceWith(
+    "[care_zoom] Operation failed",
+    { operation: "refresh-media", name: "TypeError" },
+  );
+});
+
+it("logs initialization failures without arbitrary SDK reason, payload or token values", async () => {
+  mock.client.init.mockRejectedValueOnce({
+    type: "INTERNAL_ERROR",
+    errorCode: 2,
+    reason: "private participant details",
+    token: token.token,
+    payload: { sessionName: token.session_name },
+  });
+  render(<ZoomCall requestToken={requestToken} />);
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__sdk_failed,
+  );
+  expect(console.error).toHaveBeenCalledExactlyOnceWith(
+    "[care_zoom] Operation failed",
+    { operation: "initialize", type: "INTERNAL_ERROR", errorCode: 2 },
+  );
 });

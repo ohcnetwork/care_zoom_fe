@@ -104,3 +104,697 @@
     @tailwind utilities;
   }
 }
+
+/* The call surface is shared with the native browser PiP document. */
+.care-zoom-container {
+  .zoom-call {
+    min-width: 0;
+    color: #262626;
+  }
+  .zoom-call button:focus-visible {
+    outline: 2px solid #31c48d;
+    outline-offset: 3px;
+  }
+  .zoom-call button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .zoom-call-feedback:empty {
+    display: none;
+  }
+  .zoom-call-feedback p {
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .zoom-feedback-error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+  }
+  .zoom-feedback-notice {
+    background: #f3f4f6;
+    color: #4b5563;
+  }
+  .zoom-call-loading,
+  .zoom-call-ended,
+  .zoom-call-placeholder {
+    display: flex;
+    min-height: 380px;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    text-align: center;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fafafa;
+  }
+  .zoom-call-ended h3,
+  .zoom-call-placeholder h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .zoom-call-ended p,
+  .zoom-call-placeholder p {
+    margin: 0;
+    color: #6b7280;
+    font-size: 14px;
+  }
+  .zoom-call-ended > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .zoom-placeholder-icon {
+    padding: 18px;
+    border: 1px solid #e5e7eb;
+    border-radius: 50%;
+    color: #046c4e;
+    background: white;
+  }
+  .zoom-call time {
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+  }
+  .zoom-prejoin {
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: white;
+  }
+  .zoom-prejoin-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px;
+  }
+  .zoom-prejoin-heading h3,
+  .zoom-prejoin-heading p {
+    margin: 0;
+  }
+  .zoom-preview-stage {
+    position: relative;
+    margin: 0 20px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #262626;
+  }
+  .zoom-preview {
+    display: block;
+    width: 100%;
+    max-height: 410px;
+    aspect-ratio: 16/9;
+    object-fit: contain;
+  }
+  .zoom-preview-placeholder,
+  .zoom-waiting,
+  .zoom-participant-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    color: #bfbfbf;
+    font-size: 13px;
+  }
+  .zoom-preview-placeholder {
+    padding-bottom: 38px;
+    pointer-events: none;
+  }
+  .zoom-avatar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 112px;
+    height: 112px;
+    border-radius: 50%;
+    background: #444;
+    color: white;
+    font-size: 36px;
+    font-weight: 600;
+  }
+  .zoom-avatar svg {
+    width: 30px;
+    height: 30px;
+  }
+  .zoom-preview-controls,
+  .zoom-main-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.55);
+  }
+  .zoom-preview-controls {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .zoom-control {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    background: #444;
+    color: white;
+    transition: background 0.15s;
+  }
+  .zoom-control:hover:not(:disabled) {
+    background: #606060;
+  }
+  .zoom-control svg {
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+  }
+  .zoom-control-off {
+    background: #fff;
+    color: #262626;
+  }
+  .zoom-control-off:hover:not(:disabled) {
+    background: #e5e7eb;
+  }
+  .zoom-control-danger {
+    width: 56px;
+    border-radius: 999px;
+    background: #dc2626;
+    color: white;
+  }
+  .zoom-control-danger:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+  .zoom-device-settings {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    padding: 20px;
+    background: white;
+    color: #374151;
+  }
+  .zoom-device-settings label {
+    min-width: 0;
+  }
+  .zoom-device-settings select {
+    text-overflow: ellipsis;
+  }
+  .zoom-device-settings p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .zoom-prejoin-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 20px;
+    border-top: 1px solid #e5e7eb;
+    background: #fafafa;
+  }
+  .zoom-prejoin-footer > span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #6b7280;
+  }
+  .zoom-mic-meter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 20px 0;
+    font-size: 13px;
+  }
+  .zoom-mic-meter progress {
+    accent-color: #046c4e;
+  }
+  .zoom-connected {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #333;
+    border-radius: 12px;
+    background: #202020;
+    color: #fff;
+  }
+  .zoom-stage-with-toolbar {
+    position: relative;
+  }
+  .zoom-stage {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    min-height: 450px;
+    height: min(65vh, 680px);
+    background: #262626;
+  }
+  .zoom-waiting {
+    gap: 12px;
+    padding: 65px 24px 110px;
+  }
+  .zoom-waiting[hidden] {
+    display: none;
+  }
+  .zoom-waiting strong {
+    color: #f5f5f5;
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .zoom-practitioner {
+    font-size: 12px;
+    color: #a3a3a3;
+  }
+  .zoom-gallery {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .zoom-gallery[data-remotes="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .zoom-participant {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    overflow: hidden;
+    background: #262626;
+  }
+  .zoom-participant-video {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .zoom-participant-video video-player {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .zoom-participant[data-video="true"] .zoom-participant-placeholder {
+    display: none;
+  }
+  .zoom-participant-caption {
+    position: absolute;
+    bottom: 116px;
+    left: 16px;
+    max-width: calc(100% - 32px);
+    padding: 5px 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 999px;
+    color: white;
+    background: rgb(0 0 0 / 0.55);
+    font-size: 12px;
+  }
+  .zoom-participant[data-self="true"] {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    z-index: 2;
+    width: 180px;
+    aspect-ratio: 16/10;
+    border: 1px solid rgb(255 255 255 / 0.2);
+    border-radius: 10px;
+    background: #3b3b3b;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
+  }
+  .zoom-participant[data-self="true"] .zoom-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 14px;
+  }
+  .zoom-participant[data-self="true"] .zoom-participant-placeholder {
+    gap: 4px;
+    padding-bottom: 16px;
+    font-size: 11px;
+  }
+  .zoom-participant[data-self="true"] .zoom-participant-caption {
+    bottom: 6px;
+    left: 6px;
+    max-width: calc(100% - 12px);
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+  .zoom-stage-status {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    right: 212px;
+    z-index: 3;
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .zoom-name-pill,
+  .zoom-duration,
+  .zoom-connection {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.55);
+    font-size: 12px;
+    color: white;
+  }
+  .zoom-name-pill {
+    max-width: 100%;
+    overflow: hidden;
+    display: block;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .zoom-connection svg {
+    width: 13px;
+    height: 13px;
+  }
+  .zoom-status-dot {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #31c48d;
+  }
+  .zoom-status-reconnecting {
+    background: #fbbf24;
+  }
+  .zoom-muted-badge {
+    position: absolute;
+    left: 16px;
+    bottom: 84px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #b91c1c;
+    color: white;
+    font-size: 11px;
+  }
+  .zoom-call-toolbar {
+    position: absolute;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    z-index: 4;
+    display: flex;
+    justify-content: center;
+    padding: 0 12px;
+  }
+  .zoom-call-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 16px;
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+    font-size: 12px;
+    color: #bfbfbf;
+  }
+  .zoom-call-footer > div,
+  .zoom-participant-count {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .zoom-end-action {
+    border: 0;
+    border-radius: 6px;
+    padding: 5px 8px;
+    background: transparent;
+    color: #fca5a5;
+    font: inherit;
+  }
+  .zoom-end-action:hover:not(:disabled) {
+    background: #450a0a;
+  }
+  .zoom-pip-help {
+    padding: 10px 4px 0;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #6b7280;
+  }
+
+  @media (max-width: 640px) {
+    .zoom-stage {
+      height: 480px;
+      min-height: 360px;
+    }
+    .zoom-main-controls {
+      gap: 8px;
+    }
+    .zoom-control {
+      width: 40px;
+      height: 40px;
+    }
+    .zoom-control-danger {
+      width: 48px;
+    }
+    .zoom-avatar {
+      width: 80px;
+      height: 80px;
+      font-size: 28px;
+    }
+    .zoom-participant[data-self="true"] {
+      width: 100px;
+      right: 12px;
+      top: 12px;
+    }
+    .zoom-participant[data-self="true"] .zoom-avatar {
+      display: none;
+    }
+    .zoom-stage-status {
+      top: 12px;
+      left: 12px;
+      right: 124px;
+    }
+    .zoom-connection {
+      display: none;
+    }
+    .zoom-device-settings {
+      grid-template-columns: 1fr;
+      padding: 16px;
+    }
+    .zoom-prejoin-heading {
+      padding: 16px;
+    }
+    .zoom-preview-stage {
+      margin: 0 16px;
+    }
+    .zoom-prejoin-footer {
+      padding: 16px;
+      flex-wrap: wrap;
+    }
+    .zoom-preview {
+      min-height: 240px;
+    }
+  }
+}
+
+/* Only the native browser window receives this class. No custom floating overlay. */
+.care-zoom-container.care-zoom-native-pip {
+  height: 100%;
+  background: #171717;
+  color: #fff;
+  .zoom-call {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    color: white;
+  }
+  .zoom-call-feedback {
+    flex-shrink: 0;
+    max-height: 30%;
+    overflow: auto;
+  }
+  .zoom-call-feedback p {
+    margin: 0;
+    padding: 7px 10px;
+    border-radius: 0;
+    font-size: 12px;
+  }
+  .zoom-feedback-notice {
+    background: #333;
+    color: #eee;
+  }
+  .zoom-connected {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    border: 0;
+    border-radius: 0;
+  }
+  .zoom-stage-with-toolbar {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .zoom-stage {
+    height: auto;
+    min-height: 0;
+    flex: 1;
+  }
+  .zoom-waiting {
+    padding: 44px 16px 36px;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .zoom-waiting strong {
+    font-size: 13px;
+  }
+  .zoom-waiting .zoom-practitioner {
+    display: none;
+  }
+  .zoom-avatar {
+    width: 70px;
+    height: 70px;
+    font-size: 24px;
+  }
+  .zoom-stage-status {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .zoom-name-pill {
+    min-width: 0;
+    min-height: 24px;
+    font-size: 12px;
+  }
+  .zoom-duration {
+    flex-shrink: 0;
+    min-height: 24px;
+    font-size: 12px;
+  }
+  .zoom-connection {
+    display: none;
+  }
+  .zoom-participant[data-self="true"] {
+    top: auto;
+    bottom: 10px;
+    right: 10px;
+    width: 84px;
+    border-radius: 7px;
+  }
+  .zoom-participant[data-self="true"] .zoom-avatar {
+    display: none;
+  }
+  .zoom-participant[data-self="true"] .zoom-participant-placeholder {
+    font-size: 10px;
+    padding-bottom: 14px;
+  }
+  .zoom-participant[data-self="true"] .zoom-participant-caption {
+    font-size: 9px;
+    bottom: 3px;
+    left: 3px;
+  }
+  .zoom-participant-caption {
+    bottom: 10px;
+    left: 10px;
+    max-width: calc(100% - 112px);
+    font-size: 11px;
+  }
+  .zoom-muted-badge {
+    left: 10px;
+    bottom: 38px;
+    max-width: calc(100% - 110px);
+    font-size: 10px;
+  }
+  .zoom-call-toolbar {
+    position: static;
+    flex-shrink: 0;
+    padding: 0;
+    border-top: 1px solid rgb(255 255 255 / 0.08);
+  }
+  .zoom-main-controls {
+    gap: 10px;
+    padding: 8px;
+    background: transparent;
+  }
+  .zoom-control {
+    width: 36px;
+    height: 36px;
+  }
+  .zoom-control svg {
+    width: 16px;
+    height: 16px;
+  }
+  .zoom-control-danger {
+    width: 52px;
+  }
+  .zoom-call-footer {
+    min-height: 26px;
+    padding: 0 10px 4px;
+    font-size: 11px;
+  }
+  .zoom-end-action {
+    padding: 3px 6px;
+  }
+  @media (max-width: 319px) {
+    .zoom-participant[data-self="true"] {
+      display: none;
+    }
+    .zoom-avatar {
+      width: 48px;
+      height: 48px;
+      font-size: 18px;
+    }
+    .zoom-waiting {
+      padding: 38px 12px 24px;
+    }
+    .zoom-muted-badge {
+      max-width: calc(100% - 20px);
+      bottom: 36px;
+    }
+    .zoom-participant-caption {
+      max-width: calc(100% - 20px);
+    }
+    .zoom-main-controls {
+      gap: 8px;
+      padding: 6px;
+    }
+    .zoom-control {
+      width: 32px;
+      height: 32px;
+    }
+    .zoom-control-danger {
+      width: 44px;
+    }
+  }
+}
