@@ -1,0 +1,418 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
+import ZoomCall from "../src/components/ZoomCall";
+import locale from "../public/locale/en.json";
+import type { JoinToken } from "../src/types";
+
+const mock = vi.hoisted(() => {
+  const listeners = new Map<string, (...args: unknown[]) => void>();
+  const user = {
+    userId: 1,
+    displayName: "Doctor",
+    bVideoOn: false,
+    audio: "",
+    muted: true,
+  };
+  const stream = {
+    startVideo: vi.fn(async () => {
+      user.bVideoOn = true;
+      return "";
+    }),
+    stopVideo: vi.fn(async () => {
+      user.bVideoOn = false;
+      return "";
+    }),
+    startAudio: vi.fn(async () => {
+      user.audio = "computer";
+      user.muted = false;
+      return "";
+    }),
+    stopAudio: vi.fn(async () => ""),
+    muteAudio: vi.fn(async () => {
+      user.muted = true;
+      return "";
+    }),
+    unmuteAudio: vi.fn(async () => {
+      user.muted = false;
+      return "";
+    }),
+    switchCamera: vi.fn(async () => ""),
+    switchMicrophone: vi.fn(async () => ""),
+    switchSpeaker: vi.fn(async () => ""),
+    getMaxRenderableVideos: () => 4,
+    attachVideo: vi.fn(async () => document.createElement("video-player")),
+    detachVideo: vi.fn(async () => []),
+  };
+  const client = {
+    init: vi.fn(async () => ""),
+    join: vi.fn(async () => ""),
+    leave: vi.fn(async () => ""),
+    on: vi.fn((name, fn) => listeners.set(name, fn)),
+    off: vi.fn((name) => listeners.delete(name)),
+    getMediaStream: () => stream,
+    getAllUser: vi.fn(() => [user]),
+    getCurrentUserInfo: () => user,
+    isHost: vi.fn(() => true),
+    reclaimHost: vi.fn(async () => ""),
+  };
+  const camera = {
+    start: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+    switchCamera: vi.fn(async () => undefined),
+  };
+  const microphone = {
+    start: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+    unmute: vi.fn(async () => undefined),
+    getCurrentVolume: () => 30,
+  };
+  const sdk = {
+    createClient: vi.fn(() => client),
+    destroyClient: vi.fn(async () => undefined),
+    checkSystemRequirements: () => ({ audio: true, video: true }),
+    getDevices: vi.fn(async () => [
+      { kind: "videoinput", deviceId: "camera-1", label: "Camera one" },
+      { kind: "audioinput", deviceId: "mic-1", label: "Mic one" },
+    ]),
+    createLocalVideoTrack: vi.fn(() => camera),
+    createLocalAudioTrack: vi.fn(() => microphone),
+  };
+  return { listeners, user, stream, client, camera, microphone, sdk };
+});
+vi.mock("@zoom/videosdk", () => ({ default: mock.sdk }));
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: keyof typeof locale) => locale[key] ?? key,
+  }),
+}));
+const token: JoinToken = {
+  token: "secret-memory-only",
+  session_name: "care-booking",
+  session_key: "booking",
+  display_name: "Doctor",
+  role: "host",
+  expires_at: "2030-01-01T00:00:00Z",
+};
+const requestToken = vi.fn(async () => token);
+async function ready() {
+  await screen.findByText("Check your camera and microphone");
+}
+async function join() {
+  fireEvent.click(screen.getByText("Join video call"));
+  await screen.findByText("Enable audio");
+}
+beforeEach(() => {
+  vi.clearAllMocks();
+  requestToken.mockResolvedValue(token);
+  mock.listeners.clear();
+  Object.assign(mock.user, { bVideoOn: false, audio: "", muted: true });
+  mock.client.init.mockResolvedValue("");
+  mock.client.join.mockResolvedValue("");
+  mock.client.leave.mockResolvedValue("");
+  mock.client.isHost.mockReturnValue(true);
+  mock.camera.start.mockResolvedValue(undefined);
+  mock.stream.startAudio.mockImplementation(async () => {
+    mock.user.audio = "computer";
+    mock.user.muted = false;
+    return "";
+  });
+  vi.stubGlobal("isSecureContext", true);
+  localStorage.clear();
+});
+afterEach(async () => {
+  cleanup();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  vi.unstubAllGlobals();
+});
+
+it("checks devices locally, mints only on Join, starts audio from a separate click and keeps the token out of storage", async () => {
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  expect(requestToken).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText("Check camera"));
+  await screen.findByText("Stop camera");
+  fireEvent.click(screen.getByText("Check microphone"));
+  await screen.findByText("Stop microphone check");
+  await join();
+  expect(mock.camera.stop).toHaveBeenCalled();
+  expect(mock.microphone.stop).toHaveBeenCalled();
+  expect(mock.client.join).toHaveBeenCalledWith(
+    token.session_name,
+    token.token,
+    token.display_name,
+  );
+  expect(mock.stream.attachVideo).toHaveBeenCalledWith(1, 2);
+  expect(mock.stream.startAudio).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText("Enable audio"));
+  await screen.findByText("Mute");
+  fireEvent.click(screen.getByText("Mute"));
+  await screen.findByText("Unmute");
+  expect(localStorage.length).toBe(0);
+  expect(window.location.href).not.toContain(token.token);
+  expect(mock.client.init).toHaveBeenCalledWith(
+    "en-US",
+    "Global",
+    expect.objectContaining({ isLogDetailed: false }),
+  );
+});
+it("reports denied camera access and still permits joining without video", async () => {
+  mock.camera.start.mockRejectedValueOnce(
+    new DOMException("denied", "NotAllowedError"),
+  );
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  fireEvent.click(screen.getByText("Check camera"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__media_denied,
+  );
+  await join();
+  expect(mock.stream.startVideo).not.toHaveBeenCalled();
+});
+it("does not mistake resolved SDK errors for a successful audio connection", async () => {
+  mock.stream.startAudio.mockResolvedValueOnce({
+    type: "INTERNAL_ERROR",
+    reason: "unavailable",
+  } as never);
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText("Enable audio"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__media_failed,
+  );
+  expect(screen.getByText("Enable audio")).toBeTruthy();
+});
+it("recovers connection feedback and cleans all listeners and media after host termination", async () => {
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  act(() =>
+    mock.listeners.get("connection-change")?.({ state: "Reconnecting" }),
+  );
+  expect(
+    screen.getByText("Connection interrupted. Reconnecting…"),
+  ).toBeTruthy();
+  act(() => mock.listeners.get("connection-change")?.({ state: "Connected" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByText("Connection interrupted. Reconnecting…"),
+    ).toBeNull(),
+  );
+  act(() =>
+    mock.listeners.get("connection-change")?.({
+      state: "Closed",
+      reason: "ended by host",
+    }),
+  );
+  expect(
+    await screen.findByText("The practitioner ended the call."),
+  ).toBeTruthy();
+  await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalled());
+  expect(mock.listeners.size).toBe(0);
+  expect(mock.stream.stopVideo).toHaveBeenCalled();
+  expect(mock.stream.stopAudio).toHaveBeenCalled();
+});
+it("only the server-authorized practitioner gets End and can reclaim host before ending", async () => {
+  mock.client.isHost.mockReturnValue(false);
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText("End for everyone"));
+  await screen.findByText("The call has ended for everyone.");
+  expect(mock.client.reclaimHost).toHaveBeenCalled();
+  expect(mock.client.leave).toHaveBeenCalledWith(true);
+  cleanup();
+  requestToken.mockResolvedValue({ ...token, role: "participant" });
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  expect(screen.queryByText("End for everyone")).toBeNull();
+});
+it("cleans an in-flight join on unmount and initializes a StrictMode mount only after cleanup", async () => {
+  let joined!: (result: string) => void;
+  mock.client.join.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        joined = resolve;
+      }),
+  );
+  const view = render(
+    <StrictMode>
+      <ZoomCall requestToken={requestToken} />
+    </StrictMode>,
+  );
+  await ready();
+  fireEvent.click(screen.getByText("Join video call"));
+  await waitFor(() => expect(mock.client.join).toHaveBeenCalled());
+  view.unmount();
+  await act(async () => joined(""));
+  await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalled());
+  expect(mock.client.leave).toHaveBeenCalled();
+  expect(mock.listeners.size).toBe(0);
+});
+it("reauthorizes each return to the call and reports an expired CARE session", async () => {
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText("Leave"));
+  await screen.findByText("You left the call.");
+  requestToken.mockRejectedValueOnce({ status: 401 });
+  fireEvent.click(screen.getByText("Return to device check"));
+  await ready();
+  fireEvent.click(screen.getByText("Join video call"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__session_expired,
+  );
+  expect(requestToken).toHaveBeenCalledTimes(2);
+});
+
+it("switches devices only when active and renders/detaches remote participants", async () => {
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  fireEvent.change(screen.getByLabelText("Camera", { selector: "select" }), {
+    target: { value: "camera-1" },
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByLabelText("Camera", { selector: "select" }),
+    ).toHaveProperty("value", "camera-1"),
+  );
+  expect(mock.stream.switchCamera).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText("Check camera"));
+  await screen.findByText("Stop camera");
+  fireEvent.change(screen.getByLabelText("Camera", { selector: "select" }), {
+    target: { value: "" },
+  });
+  await waitFor(() =>
+    expect(mock.camera.switchCamera).toHaveBeenCalledWith("camera-1"),
+  );
+  await join();
+  const patient = {
+    ...mock.user,
+    userId: 2,
+    displayName: "Patient",
+    bVideoOn: true,
+  };
+  mock.client.getAllUser.mockReturnValueOnce([mock.user, patient]);
+  act(() => mock.listeners.get("user-added")?.([patient]));
+  await waitFor(() =>
+    expect(mock.stream.attachVideo).toHaveBeenCalledWith(2, 2),
+  );
+  expect(screen.getByText("Patient")).toBeTruthy();
+  act(() => mock.listeners.get("user-removed")?.([patient]));
+  await waitFor(() => expect(screen.queryByText("Patient")).toBeNull());
+  expect(mock.stream.detachVideo).toHaveBeenCalledWith(2);
+});
+it("handles a resolved join failure without entering a session", async () => {
+  mock.client.join.mockResolvedValueOnce({
+    type: "INVALID_PARAMETERS",
+    reason: "invalid token",
+  } as never);
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  fireEvent.click(screen.getByText("Join video call"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__join_failed,
+  );
+  expect(screen.getByText("Check your camera and microphone")).toBeTruthy();
+  expect(screen.queryByText("End for everyone")).toBeNull();
+});
+
+it("tears down only once when Closed fires during Leave, then unmounts", async () => {
+  mock.client.leave.mockImplementationOnce(async () => {
+    mock.listeners.get("connection-change")?.({ state: "Closed" });
+    return "";
+  });
+  const view = render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText("Leave"));
+  await screen.findByText("You left the call.");
+  view.unmount();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1);
+  expect(mock.client.leave).toHaveBeenCalledTimes(1);
+});
+it("waits for delayed teardown before creating the next singleton", async () => {
+  let finishDestroy!: () => void;
+  mock.sdk.destroyClient.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishDestroy = resolve;
+      }),
+  );
+  const view = render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  fireEvent.click(screen.getByText("Leave"));
+  await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1));
+  view.unmount();
+  render(<ZoomCall requestToken={requestToken} />);
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(mock.sdk.createClient).toHaveBeenCalledTimes(1);
+  await act(async () => finishDestroy());
+  await ready();
+  expect(mock.sdk.createClient).toHaveBeenCalledTimes(2);
+  expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1);
+});
+it("offers appointment recovery when staff token rejection uses 403 token_not_valid", async () => {
+  requestToken.mockRejectedValueOnce({ status: 403, code: "token_not_valid" });
+  const onExit = vi.fn();
+  render(<ZoomCall requestToken={requestToken} onExit={onExit} />);
+  await ready();
+  fireEvent.click(screen.getByText("Join video call"));
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    locale.zoom__session_expired,
+  );
+  fireEvent.click(screen.getByText("Back to appointment"));
+  expect(onExit).toHaveBeenCalled();
+});
+
+it("detaches an in-flight participant render before releasing an unmounted call", async () => {
+  let finishAttach!: (node: HTMLElement) => void;
+  mock.stream.attachVideo.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishAttach = resolve;
+      }),
+  );
+  const view = render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  const patient = {
+    ...mock.user,
+    userId: 2,
+    displayName: "Patient",
+    bVideoOn: true,
+  };
+  mock.client.getAllUser.mockReturnValueOnce([mock.user, patient]);
+  act(() => mock.listeners.get("user-added")?.([patient]));
+  await waitFor(() =>
+    expect(mock.stream.attachVideo).toHaveBeenCalledWith(2, 2),
+  );
+  view.unmount();
+  const node = document.createElement("video-player");
+  await act(async () => finishAttach(node));
+  await waitFor(() => expect(mock.sdk.destroyClient).toHaveBeenCalledTimes(1));
+  expect(node.isConnected).toBe(false);
+  expect(mock.stream.detachVideo).toHaveBeenCalledWith(2);
+});
