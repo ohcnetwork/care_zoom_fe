@@ -49,6 +49,34 @@ test("seeded doctor appointment and Schedule Management render against the real 
     page.getByRole("link", { name: "Join video call" }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /Check-In/i })).toBeVisible();
+  const actions = page.getByRole("group", { name: "Appointment actions" });
+  await expect(
+    actions.getByRole("button", { name: /Check-In/i }),
+  ).toBeVisible();
+  await expect(
+    actions.getByRole("link", { name: "Join video call" }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/schedule-video-appointment.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    actions.getByRole("button", { name: /Check-In/i }),
+  ).toBeVisible();
+  await expect(
+    actions.getByRole("link", { name: "Join video call" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/schedule-video-appointment-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await expect(page.getByRole("button", { name: /Add tags/i })).toBeVisible();
   await expect(
     page.getByText("A plugin override for", { exact: false }),
@@ -69,7 +97,9 @@ test("seeded doctor appointment and Schedule Management render against the real 
   await expect(page).toHaveURL(
     `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}/video`,
   );
-  const details = page.getByRole("region", { name: "Appointment details" });
+  const details = page.getByRole("complementary", {
+    name: "Appointment details",
+  });
   await expect(details).toBeVisible();
   await expect(
     details.getByText("Zoom Verification Patient", { exact: true }),
@@ -111,6 +141,73 @@ test("seeded doctor appointment and Schedule Management render against the real 
   ).toBeVisible();
   await expect(
     page.getByText("Zoom verification", { exact: true }).first(),
+  ).toBeVisible();
+  const settingsResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/care_zoom/facility/") &&
+      response.url().endsWith("/video/"),
+  );
+  await page
+    .getByRole("button", { name: "Consultation mode", exact: true })
+    .click();
+  const settings = await settingsResponse;
+  expect(settings.ok()).toBe(true);
+  const original = (await settings.json()) as { video_enabled: boolean };
+  expect(original.video_enabled).toBe(true);
+  const dialog = page.getByRole("dialog", {
+    name: "Consultation mode",
+    exact: true,
+  });
+  await expect(
+    dialog.getByRole("radio", { name: "Video call", exact: true }),
+  ).toBeChecked();
+  await page.screenshot({
+    path: "test-results/schedule-video-settings.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    dialog.getByRole("button", { name: "Save", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/schedule-video-settings-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  try {
+    await dialog.getByRole("radio", { name: "In person", exact: true }).check();
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    const metadata = page.waitForResponse((response) =>
+      response.url().includes(`/care_zoom/appointments/${bookingId}/`),
+    );
+    await page.goto(
+      `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}`,
+    );
+    expect((await (await metadata).json()).eligible).toBe(false);
+    await expect(page.getByRole("button", { name: /Check-In/i })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Join video call" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Copy call link" }),
+    ).toHaveCount(0);
+  } finally {
+    // Restore only this synthetic schedule, even if a UI assertion fails.
+    const restored = await page.request.patch(settings.url(), {
+      headers: { Authorization: settings.request().headers().authorization },
+      data: { video_enabled: original.video_enabled },
+    });
+    expect(restored.ok()).toBe(true);
+  }
+  await page.reload();
+  await expect(
+    page.getByRole("link", { name: "Join video call" }),
   ).toBeVisible();
   await expect(
     page.getByText("A plugin override for", { exact: false }),

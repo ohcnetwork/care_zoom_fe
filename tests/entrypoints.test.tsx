@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createContext } from "react";
+import { createContext, useState } from "react";
 import {
   act,
   cleanup,
@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import PatientInfoCard from "../src/components/PatientInfoCard";
 import PatientPortalIndex from "../src/components/PatientPortalIndex";
@@ -116,7 +117,8 @@ describe("pinned host entry points before SDK integration", () => {
     expect(base.mock.calls[0][0].facilityId).toBe("facility");
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("appends assigned-doctor actions without removing original children", async () => {
+  it("groups assigned-doctor actions with the working native controls", async () => {
+    const checkIn = vi.fn();
     render(
       <PatientInfoCard
         __base={({ children }) => <div>{children as React.ReactNode}</div>}
@@ -125,16 +127,82 @@ describe("pinned host entry points before SDK integration", () => {
         facilityId="facility"
         patient={{ id: "patient" }}
       >
-        <span>Original appointment controls</span>
+        <button onClick={checkIn}>Check-In</button>
       </PatientInfoCard>,
     );
     expect(await screen.findByText("Copy call link")).toBeTruthy();
-    expect(screen.getByText("Original appointment controls")).toBeTruthy();
+    const actions = within(
+      screen.getByRole("group", { name: "Appointment actions" }),
+    );
+    fireEvent.click(actions.getByRole("button", { name: "Check-In" }));
+    expect(checkIn).toHaveBeenCalledOnce();
     expect(
       screen
         .getByRole("link", { name: "Join video call" })
         .getAttribute("href"),
     ).toBe(`/facility/facility/patient/patient/appointments/${id}/video`);
+  });
+  it("keeps native action state through loading, video eligibility changes and failures", async () => {
+    let poll: (() => Promise<unknown>) | undefined;
+    const interval = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation((callback) => {
+        poll = callback as () => Promise<unknown>;
+        return 123;
+      });
+    function NativeActions() {
+      const [count, setCount] = useState(0);
+      return (
+        <button onClick={() => setCount(count + 1)}>
+          Native action {count}
+        </button>
+      );
+    }
+    vi.mocked(fetch).mockResolvedValue(response({ ...info, eligible: false }));
+    render(
+      <PatientInfoCard
+        __base={({ children }) => <div>{children as React.ReactNode}</div>}
+        tagEntityType="appointment"
+        tagEntityId={id}
+      >
+        <NativeActions />
+      </PatientInfoCard>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Native action 0" }));
+    await act(async () => {
+      await poll?.();
+    });
+    expect(screen.queryByText("Join video call")).toBeNull();
+    expect(screen.queryByText("Copy call link")).toBeNull();
+    vi.mocked(fetch).mockResolvedValue(response(info));
+    await act(async () => {
+      await poll?.();
+    });
+    expect(screen.getByRole("link", { name: "Join video call" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Native action 1" }),
+    ).toBeTruthy();
+    vi.mocked(fetch).mockResolvedValue(response({ ...info, eligible: false }));
+    await act(async () => {
+      await poll?.();
+    });
+    expect(screen.queryByText("Join video call")).toBeNull();
+    expect(screen.queryByText("Copy call link")).toBeNull();
+    vi.mocked(fetch).mockResolvedValue(response(info));
+    await act(async () => {
+      await poll?.();
+    });
+    expect(screen.getByRole("link", { name: "Join video call" })).toBeTruthy();
+    vi.mocked(fetch).mockRejectedValue(new Error("Network failure"));
+    await act(async () => {
+      await poll?.();
+    });
+    expect(
+      screen.getByRole("button", { name: "Native action 1" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("Join video call")).toBeNull();
+    expect(screen.queryByText("Copy call link")).toBeNull();
+    interval.mockRestore();
   });
   it("other booking readers get copy without practitioner join", async () => {
     vi.mocked(fetch).mockResolvedValue(

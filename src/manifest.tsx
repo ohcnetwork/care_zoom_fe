@@ -53,6 +53,11 @@ const manifest = {
           !!teleconsultMatch(context.route ?? ""),
       },
     },
+    {
+      component: "EditScheduleTemplateSheet",
+      replacement: lazy(() => import("./components/ScheduleVideoSettings")),
+      priority: 10,
+    },
   ],
 };
 export default manifest;

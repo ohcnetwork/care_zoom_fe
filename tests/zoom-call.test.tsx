@@ -104,7 +104,7 @@ const token: JoinToken = {
 };
 const requestToken = vi.fn(async () => token);
 async function ready() {
-  await screen.findByText("Check your camera and microphone");
+  await screen.findByText("Ready to join?");
 }
 async function join() {
   fireEvent.click(screen.getByText("Join video call"));
@@ -145,6 +145,10 @@ beforeEach(() => {
   mock.client.leave.mockResolvedValue("");
   mock.client.isHost.mockReturnValue(true);
   mock.camera.start.mockResolvedValue(undefined);
+  mock.sdk.getDevices.mockResolvedValue([
+    { kind: "videoinput", deviceId: "camera-1", label: "Camera one" },
+    { kind: "audioinput", deviceId: "mic-1", label: "Mic one" },
+  ]);
   mock.stream.startAudio.mockImplementation(async () => {
     mock.user.audio = "computer";
     mock.user.muted = false;
@@ -186,7 +190,7 @@ it("opens native PiP from a consultation action with working controls and restor
   expect(
     screen.getByText(locale.zoom__picture_in_picture_http_help),
   ).toBeTruthy();
-  const settings = screen.getByRole("button", { name: "Device settings" });
+  const settings = screen.getByRole("button", { name: "Camera settings" });
   fireEvent.click(settings);
   expect(settings.getAttribute("aria-expanded")).toBe("true");
   expect(screen.getByLabelText("Camera", { selector: "select" })).toBeTruthy();
@@ -196,6 +200,8 @@ it("opens native PiP from a consultation action with working controls and restor
   await screen.findByText("Stop camera");
   const player = document.querySelector("video-player");
   expect(player).toBeTruthy();
+  fireEvent.click(settings);
+  expect(screen.getByLabelText("Camera", { selector: "select" })).toBeTruthy();
   fireEvent.click(screen.getByText("Start consultation"));
   // Must request in the original click, before browser activation is lost.
   expect(requestWindow).toHaveBeenCalledTimes(1);
@@ -207,6 +213,11 @@ it("opens native PiP from a consultation action with working controls and restor
   expect(pip.document.head.textContent).toContain(sheet.textContent);
   expect(pip.document.querySelector(".care-zoom-container")).toBeTruthy();
   const floating = within(pip.document.body);
+  expect(floating.queryByLabelText("Camera settings")).toBeNull();
+  expect(
+    floating.queryByLabelText("Microphone and speaker settings"),
+  ).toBeNull();
+  expect(pip.document.querySelector("select")).toBeNull();
   act(() => floating.getByText("Enable audio").click());
   await waitFor(() => expect(floating.getByText("Mute")).toBeTruthy());
   act(() => floating.getByText("Mute").click());
@@ -219,6 +230,12 @@ it("opens native PiP from a consultation action with working controls and restor
   expect(mock.stream.attachVideo).toHaveBeenCalledTimes(1);
   expect(mock.stream.detachVideo).not.toHaveBeenCalled();
   expect(mock.client.leave).not.toHaveBeenCalled();
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(
+    screen
+      .getByRole("button", { name: "Camera settings" })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
   sheet.remove();
   view.unmount();
 });
@@ -295,10 +312,16 @@ it("checks devices locally, mints only on Join, starts audio from a separate cli
   render(<ZoomCall requestToken={requestToken} />);
   await ready();
   expect(requestToken).not.toHaveBeenCalled();
+  expect(screen.getByRole("progressbar")).toHaveProperty("value", 0);
+  expect(screen.getByText(locale.zoom__mic_check_hint)).toBeTruthy();
+  expect(mock.sdk.createLocalAudioTrack).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("Check camera"));
   await screen.findByText("Stop camera");
   fireEvent.click(screen.getByText("Check microphone"));
   await screen.findByText("Stop microphone check");
+  await waitFor(() =>
+    expect(screen.getByRole("progressbar")).toHaveProperty("value", 30),
+  );
   await join();
   expect(mock.camera.stop).toHaveBeenCalled();
   expect(mock.microphone.stop).toHaveBeenCalled();
@@ -320,6 +343,86 @@ it("checks devices locally, mints only on Join, starts audio from a separate cli
     "Global",
     expect.objectContaining({ isLogDetailed: false }),
   );
+});
+
+it("groups live device selectors, switches active media, and dismisses the panel with Escape or an outside click", async () => {
+  vi.stubGlobal(
+    "AudioContext",
+    class {
+      setSinkId() {}
+    },
+  );
+  mock.sdk.getDevices.mockResolvedValue([
+    { kind: "videoinput", deviceId: "camera-1", label: "Camera one" },
+    { kind: "audioinput", deviceId: "mic-1", label: "Mic one" },
+    { kind: "audiooutput", deviceId: "speaker-1", label: "Speaker one" },
+  ]);
+  render(<ZoomCall requestToken={requestToken} />);
+  await ready();
+  await join();
+  const audioSettings = screen.getByRole("button", {
+    name: "Microphone and speaker settings",
+  });
+  const cameraSettings = screen.getByRole("button", {
+    name: "Camera settings",
+  });
+  fireEvent.click(audioSettings);
+  const microphone = screen.getByLabelText("Microphone", {
+    selector: "select",
+  });
+  expect(document.activeElement).toBe(microphone);
+  expect(audioSettings.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.queryByLabelText("Camera", { selector: "select" })).toBeNull();
+  expect(
+    document.getElementById(audioSettings.getAttribute("aria-controls")!),
+  ).toBeTruthy();
+  fireEvent.change(microphone, { target: { value: "mic-1" } });
+  await waitFor(() => expect(microphone).toHaveProperty("value", "mic-1"));
+  expect(mock.stream.switchMicrophone).not.toHaveBeenCalled();
+  fireEvent.keyDown(microphone, { key: "Escape" });
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(document.activeElement).toBe(audioSettings);
+  fireEvent.click(screen.getByText("Enable audio"));
+  await screen.findByText("Mute");
+  expect(mock.stream.startAudio).toHaveBeenCalledWith({
+    microphoneId: "mic-1",
+    speakerId: undefined,
+  });
+  fireEvent.click(audioSettings);
+  fireEvent.change(
+    screen.getByLabelText("Microphone", { selector: "select" }),
+    { target: { value: "" } },
+  );
+  await waitFor(() =>
+    expect(mock.stream.switchMicrophone).toHaveBeenCalledWith("mic-1"),
+  );
+  fireEvent.change(screen.getByLabelText("Speaker", { selector: "select" }), {
+    target: { value: "speaker-1" },
+  });
+  await waitFor(() =>
+    expect(mock.stream.switchSpeaker).toHaveBeenCalledWith("speaker-1"),
+  );
+  fireEvent.click(cameraSettings);
+  expect(
+    screen.queryByLabelText("Microphone", { selector: "select" }),
+  ).toBeNull();
+  expect(audioSettings.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.keyDown(screen.getByLabelText("Camera", { selector: "select" }), {
+    key: "Escape",
+  });
+  expect(document.activeElement).toBe(cameraSettings);
+  fireEvent.click(screen.getByText("Start camera"));
+  await screen.findByText("Stop camera");
+  fireEvent.click(cameraSettings);
+  fireEvent.change(screen.getByLabelText("Camera", { selector: "select" }), {
+    target: { value: "camera-1" },
+  });
+  await waitFor(() =>
+    expect(mock.stream.switchCamera).toHaveBeenCalledWith("camera-1"),
+  );
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(cameraSettings.getAttribute("aria-expanded")).toBe("false");
 });
 it("reports denied camera access and still permits joining without video", async () => {
   mock.camera.start.mockRejectedValueOnce(
@@ -490,7 +593,7 @@ it("handles a resolved join failure without entering a session", async () => {
     "textContent",
     locale.zoom__join_failed,
   );
-  expect(screen.getByText("Check your camera and microphone")).toBeTruthy();
+  expect(screen.getByText("Ready to join?")).toBeTruthy();
   expect(screen.queryByText("End for everyone")).toBeNull();
   expect(console.error).toHaveBeenCalledExactlyOnceWith(
     "[care_zoom] Operation failed",

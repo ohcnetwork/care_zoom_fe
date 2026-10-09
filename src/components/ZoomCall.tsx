@@ -16,12 +16,12 @@ import type {
   LocalVideoTrack,
 } from "@zoom/videosdk";
 import {
+  ChevronUp,
   Mic,
   MicOff,
   Maximize2,
   PhoneOff,
   PictureInPicture2,
-  Settings2,
   Signal,
   Users,
   Video,
@@ -222,7 +222,12 @@ export default function ZoomCall({
   const [volume, setVolume] = useState(0);
   const [host, setHost] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [devicePanel, setDevicePanel] = useState<"audio" | "camera" | null>(
+    null,
+  );
+  const devicePanelRef = useRef<HTMLDivElement>(null);
+  const audioSettingsRef = useRef<HTMLButtonElement>(null);
+  const cameraSettingsRef = useRef<HTMLButtonElement>(null);
   const deviceSettingsId = useId();
   const [startedAt, setStartedAt] = useState<number>();
   const [elapsed, setElapsed] = useState(0);
@@ -250,6 +255,40 @@ export default function ZoomCall({
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [connected, startedAt]);
+
+  useEffect(() => {
+    if (compact || !connected) setDevicePanel(null);
+  }, [compact, connected]);
+
+  useEffect(() => {
+    if (!devicePanel || compact || !connected) return;
+    const ownerDocument = devicePanelRef.current?.ownerDocument;
+    devicePanelRef.current?.querySelector("select")?.focus();
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (
+        !devicePanelRef.current?.contains(target) &&
+        !audioSettingsRef.current?.contains(target) &&
+        !cameraSettingsRef.current?.contains(target)
+      )
+        setDevicePanel(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDevicePanel(null);
+      (devicePanel === "audio"
+        ? audioSettingsRef
+        : cameraSettingsRef
+      ).current?.focus();
+    };
+    ownerDocument?.addEventListener("pointerdown", dismiss);
+    ownerDocument?.addEventListener("keydown", escape);
+    return () => {
+      ownerDocument?.removeEventListener("pointerdown", dismiss);
+      ownerDocument?.removeEventListener("keydown", escape);
+    };
+  }, [devicePanel, compact, connected]);
 
   function errorKey(cause: unknown, fallback = "zoom__media_failed") {
     const detail = cause as {
@@ -413,7 +452,7 @@ export default function ZoomCall({
     setAudioOn(false);
     setMuted(true);
     setVolume(0);
-    setSettingsOpen(false);
+    setDevicePanel(null);
     setStartedAt(undefined);
     setElapsed(0);
     const boot = (async () => {
@@ -757,27 +796,39 @@ export default function ZoomCall({
       </label>
     );
   }
-  const deviceSettings = (
-    <div id={deviceSettingsId} className="zoom-device-settings">
-      {deviceSelect("camera", cameraId, cameraOptions)}
-      {deviceSelect(
-        "microphone",
-        microphoneId,
-        devices.filter((device) => device.kind === "audioinput"),
-      )}
-      {speakerSelection ? (
-        deviceSelect(
-          "speaker",
-          speakerId,
-          devices.filter((device) => device.kind === "audiooutput"),
-        )
-      ) : (
-        <p className="self-end text-sm text-gray-600">
-          {t("zoom__system_speaker")}
-        </p>
-      )}
-    </div>
+  const microphoneSelect = deviceSelect(
+    "microphone",
+    microphoneId,
+    devices.filter((device) => device.kind === "audioinput"),
   );
+  const speakerSelect = speakerSelection ? (
+    deviceSelect(
+      "speaker",
+      speakerId,
+      devices.filter((device) => device.kind === "audiooutput"),
+    )
+  ) : (
+    <p className="self-end text-sm text-gray-600">
+      {t("zoom__system_speaker")}
+    </p>
+  );
+  function deviceTrigger(panel: "audio" | "camera") {
+    return (
+      <button
+        ref={panel === "audio" ? audioSettingsRef : cameraSettingsRef}
+        type="button"
+        className="zoom-device-trigger"
+        title={t(`zoom__${panel}_settings`)}
+        aria-label={t(`zoom__${panel}_settings`)}
+        aria-expanded={devicePanel === panel}
+        aria-controls={devicePanel === panel ? deviceSettingsId : undefined}
+        disabled={busy || phase === "reconnecting"}
+        onClick={() => setDevicePanel(devicePanel === panel ? null : panel)}
+      >
+        <ChevronUp aria-hidden="true" />
+      </button>
+    );
+  }
   function control(
     label: string,
     icon: ReactNode,
@@ -787,7 +838,6 @@ export default function ZoomCall({
       danger?: boolean;
       disabled?: boolean;
       className?: string;
-      expanded?: boolean;
     } = {},
   ) {
     return (
@@ -796,10 +846,6 @@ export default function ZoomCall({
         title={t(label)}
         className={`zoom-control ${options.off ? "zoom-control-off" : ""} ${options.danger ? "zoom-control-danger" : ""} ${options.className || ""}`}
         disabled={options.disabled}
-        aria-expanded={options.expanded}
-        aria-controls={
-          options.expanded === undefined ? undefined : deviceSettingsId
-        }
         onClick={onClick}
       >
         {icon}
@@ -825,7 +871,7 @@ export default function ZoomCall({
             {t(error)}
           </p>
         )}
-        {notice && (
+        {notice && phase !== "ended" && (
           <p role="status" className="zoom-feedback-notice">
             {t(notice)}
           </p>
@@ -844,58 +890,78 @@ export default function ZoomCall({
       )}
       {phase === "prejoin" && (
         <div className="zoom-prejoin">
-          <div className="zoom-prejoin-heading">
-            <h3 className="text-lg font-semibold">{t("zoom__prejoin")}</h3>
-            <p className="text-sm text-gray-600">{t("zoom__prejoin_help")}</p>
-          </div>
-          <div className="zoom-preview-stage">
-            <video
-              ref={preview}
-              muted
-              autoPlay
-              playsInline
-              className="zoom-preview"
-              aria-label={t("zoom__camera_preview")}
-            />
-            {!cameraOn && (
-              <div className="zoom-preview-placeholder">
-                <span className="zoom-avatar">
-                  <VideoOff aria-hidden="true" />
-                </span>
-                <span>{t("zoom__camera_off")}</span>
+          <div className="zoom-prejoin-preview">
+            <div className="zoom-preview-stage">
+              <video
+                ref={preview}
+                muted
+                autoPlay
+                playsInline
+                className="zoom-preview"
+                aria-label={t("zoom__camera_preview")}
+              />
+              {!cameraOn && (
+                <div className="zoom-preview-placeholder">
+                  <span className="zoom-avatar">
+                    <VideoOff aria-hidden="true" />
+                  </span>
+                  <span>{t("zoom__camera_off")}</span>
+                </div>
+              )}
+              <span className="zoom-preview-name">{t("zoom__you")}</span>
+              <div className="zoom-preview-controls">
+                {control(
+                  checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic",
+                  checkingMic ? <Mic /> : <MicOff />,
+                  toggleMicCheck,
+                  { off: !checkingMic, disabled: busy },
+                )}
+                {control(
+                  cameraOn ? "zoom__stop_camera" : "zoom__check_camera",
+                  cameraOn ? <Video /> : <VideoOff />,
+                  toggleCamera,
+                  { off: !cameraOn, disabled: busy },
+                )}
               </div>
-            )}
-            <div className="zoom-preview-controls">
-              {control(
-                cameraOn ? "zoom__stop_camera" : "zoom__check_camera",
-                cameraOn ? <Video /> : <VideoOff />,
-                toggleCamera,
-                { off: !cameraOn, disabled: busy },
+            </div>
+            <div className="zoom-mic-meter" data-active={checkingMic}>
+              {checkingMic ? (
+                <Mic aria-hidden="true" />
+              ) : (
+                <MicOff aria-hidden="true" />
               )}
-              {control(
-                checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic",
-                checkingMic ? <Mic /> : <MicOff />,
-                toggleMicCheck,
-                { off: !checkingMic, disabled: busy },
-              )}
+              <span>
+                {t(checkingMic ? "zoom__mic_level" : "zoom__mic_check_hint")}
+              </span>
+              <progress
+                aria-label={t("zoom__mic_level")}
+                value={volume}
+                max={100}
+              />
             </div>
           </div>
-          {checkingMic && (
-            <label className="zoom-mic-meter">
-              {t("zoom__mic_level")}
-              <progress value={volume} max={100} />
-            </label>
-          )}
-          {deviceSettings}
-          <div className="zoom-prejoin-footer">
-            <span>
-              <Video size={16} aria-hidden="true" />
-              {patientName || t("zoom__call_title")}
-            </span>
-            <Button disabled={busy} onClick={join}>
-              <Video />
-              {t("zoom__join")}
-            </Button>
+          <div className="zoom-prejoin-setup">
+            <div className="zoom-prejoin-heading">
+              <h3 className="text-lg font-semibold">
+                {t("zoom__ready_to_join")}
+              </h3>
+              <p className="text-sm text-gray-600">
+                {t("zoom__call_title")}
+                {patientName && ` · ${patientName}`}
+              </p>
+            </div>
+            <div className="zoom-device-settings">
+              {microphoneSelect}
+              {deviceSelect("camera", cameraId, cameraOptions)}
+              {speakerSelect}
+            </div>
+            <div className="zoom-prejoin-footer">
+              <Button disabled={busy} onClick={join}>
+                <Video />
+                {t("zoom__join")}
+              </Button>
+              <p className="zoom-prejoin-hint">{t("zoom__prejoin_help")}</p>
+            </div>
           </div>
         </div>
       )}
@@ -950,25 +1016,53 @@ export default function ZoomCall({
           {connected && (
             <div className="zoom-call-toolbar">
               <div className="zoom-main-controls">
-                {control(
-                  audioLabel,
-                  audioOn && !muted ? <Mic /> : <MicOff />,
-                  toggleAudio,
-                  {
-                    off: !audioOn || muted,
-                    disabled: busy || phase === "reconnecting",
-                  },
+                {!compact && devicePanel && (
+                  <div
+                    ref={devicePanelRef}
+                    id={deviceSettingsId}
+                    className="zoom-device-popover"
+                    data-device={devicePanel}
+                    role="region"
+                    aria-label={t(`zoom__${devicePanel}_settings`)}
+                  >
+                    <h3 className="zoom-device-popover-heading">
+                      {t(`zoom__${devicePanel}_settings`)}
+                    </h3>
+                    {devicePanel === "audio" ? (
+                      <>
+                        {microphoneSelect}
+                        {speakerSelect}
+                      </>
+                    ) : (
+                      deviceSelect("camera", cameraId, cameraOptions)
+                    )}
+                  </div>
                 )}
-                {control(
-                  cameraOn ? "zoom__stop_camera" : "zoom__start_camera",
-                  cameraOn ? <Video /> : <VideoOff />,
-                  toggleCamera,
-                  {
-                    off: !cameraOn,
-                    disabled: busy || phase === "reconnecting",
-                    className: "zoom-camera-control",
-                  },
-                )}
+                <div className="zoom-control-group">
+                  {control(
+                    audioLabel,
+                    audioOn && !muted ? <Mic /> : <MicOff />,
+                    toggleAudio,
+                    {
+                      off: !audioOn || muted,
+                      disabled: busy || phase === "reconnecting",
+                    },
+                  )}
+                  {!compact && deviceTrigger("audio")}
+                </div>
+                <div className="zoom-control-group">
+                  {control(
+                    cameraOn ? "zoom__stop_camera" : "zoom__start_camera",
+                    cameraOn ? <Video /> : <VideoOff />,
+                    toggleCamera,
+                    {
+                      off: !cameraOn,
+                      disabled: busy || phase === "reconnecting",
+                      className: "zoom-camera-control",
+                    },
+                  )}
+                  {!compact && deviceTrigger("camera")}
+                </div>
                 {pictureInPicture.supported &&
                   control(
                     pictureInPicture.active
@@ -983,13 +1077,6 @@ export default function ZoomCall({
                       pictureInPicture.active
                         ? pictureInPicture.close()
                         : void pictureInPicture.open(),
-                  )}
-                {activeMode === "full" &&
-                  control(
-                    "zoom__device_settings",
-                    <Settings2 />,
-                    () => setSettingsOpen(!settingsOpen),
-                    { off: settingsOpen, expanded: settingsOpen },
                   )}
                 {control("zoom__leave", <PhoneOff />, () => leave(), {
                   danger: true,
@@ -1019,7 +1106,6 @@ export default function ZoomCall({
             </div>
           </div>
         )}
-        {settingsOpen && !compact && deviceSettings}
       </div>
       {connected && !compact && (
         <p className="zoom-pip-help">
@@ -1049,9 +1135,10 @@ export default function ZoomCall({
                 : "zoom__call_finished",
             )}
           </h3>
+          {notice && <p role="status">{t(notice)}</p>}
           {startedAt !== undefined && (
-            <p>
-              {callName} · <time>{duration}</time>
+            <p className="zoom-ended-duration">
+              {t("zoom__call_duration")} <time>{duration}</time>
             </p>
           )}
           <div>
@@ -1062,7 +1149,7 @@ export default function ZoomCall({
               {t("zoom__return_prejoin")}
             </Button>
             {onExit && (
-              <Button variant="outline" onClick={onExit}>
+              <Button variant="white" onClick={onExit}>
                 {t("zoom__back_appointment")}
               </Button>
             )}

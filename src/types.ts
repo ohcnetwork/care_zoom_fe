@@ -1,4 +1,8 @@
 export type AuthKind = "staff" | "patient";
+export interface ScheduleVideoSettings {
+  schedule_id: string;
+  video_enabled: boolean;
+}
 export interface PatientToken {
   token: string;
   phoneNumber: string;

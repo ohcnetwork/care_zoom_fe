@@ -71,22 +71,24 @@ export default function CallPage({
   ]);
   return (
     <Page>
-      <div className="mx-auto my-4 w-full max-w-[100rem] px-4 text-secondary-900">
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-primary-700">
-              <Video className="size-5" aria-hidden="true" />
+      <div className="zoom-call-page mx-auto my-4 w-full max-w-[100rem] px-3 text-secondary-900 sm:px-4">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+              <Video className="size-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-xl font-bold">{t("zoom__call_title")}</h1>
-              {showAppointment && metadata && (
+              <h1 className="text-lg font-bold tracking-tight text-gray-900">
+                {t("zoom__call_title")}
+              </h1>
+              {kind !== "staff" && showAppointment && metadata && (
                 <p className="mt-0.5 break-words text-sm text-gray-600">
                   {metadata.patient_name} · {metadata.practitioner_name}
                 </p>
               )}
             </div>
           </div>
-          {showAppointment && metadata && (
+          {kind !== "staff" && showAppointment && metadata && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <CalendarDays className="size-4 shrink-0" aria-hidden="true" />
               <time dateTime={metadata.start_datetime}>
@@ -101,7 +103,7 @@ export default function CallPage({
         <div
           className={
             kind === "staff" && staffRouteReady
-              ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_19rem]"
+              ? "zoom-call-layout grid items-start gap-4"
               : "mx-auto max-w-6xl"
           }
         >

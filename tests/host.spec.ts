@@ -86,6 +86,7 @@ const info = {
   reason: "Zoom credentials are not configured.",
 };
 async function apiFixtures(page: Page) {
+  let currentBooking = { ...booking };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     let data: unknown = { results: [], count: 0, next: null, previous: null };
@@ -115,8 +116,13 @@ async function apiFixtures(page: Page) {
     else if (path === `/api/v1/facility/${facilityId}/`) data = facility;
     else if (
       path === `/api/v1/facility/${facilityId}/appointments/${bookingId}/`
-    )
-      data = booking;
+    ) {
+      if (route.request().method() === "PUT") {
+        const update = route.request().postDataJSON();
+        currentBooking = { ...currentBooking, ...update };
+      }
+      data = currentBooking;
+    }
     await route.fulfill({
       status: 200,
       json: data,
@@ -168,7 +174,9 @@ test("public UUID route preserves core login and staff login returns to the same
     ),
   );
   await expect(
-    page.getByText(`${patient.name} · Dr Test Doctor`),
+    page
+      .getByRole("complementary", { name: "Appointment details" })
+      .getByText(patient.name),
   ).toBeVisible();
 });
 test("existing OTP login reaches the call through PatientRouter fallback", async ({
@@ -222,6 +230,26 @@ test("staff appointment card keeps core patient/actions/tags and adds Join/Copy"
   ).toBeVisible();
   await expect(page.getByRole("button", { name: /Add tags/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /Check-In/i })).toBeVisible();
+  const actions = page.getByRole("group", { name: "Appointment actions" });
+  const checkIn = actions.getByRole("button", { name: /Check-In/i });
+  const join = actions.getByRole("link", { name: "Join video call" });
+  const checkInBox = await checkIn.boundingBox();
+  const joinBox = await join.boundingBox();
+  expect(checkInBox).not.toBeNull();
+  expect(joinBox).not.toBeNull();
+  expect(Math.abs(checkInBox!.y - joinBox!.y)).toBeLessThan(8);
+  const updated = page.waitForRequest(
+    (request) =>
+      request.url().endsWith(`/appointments/${bookingId}/`) &&
+      request.method() === "PUT",
+  );
+  await checkIn.click();
+  expect((await updated).postDataJSON()).toMatchObject({
+    status: "checked_in",
+    note: booking.note,
+  });
+  await expect(checkIn).toHaveCount(0);
+  await expect(join).toBeVisible();
   await page.getByRole("link", { name: "Join video call" }).click();
   await expect(page).toHaveURL(new RegExp(`/appointments/${bookingId}/video$`));
   await expect(
@@ -236,6 +264,35 @@ test("staff appointment card keeps core patient/actions/tags and adds Join/Copy"
     "href",
     `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}?from_queue=true`,
   );
+});
+test("in-person appointments retain native controls without video actions", async ({
+  page,
+}) => {
+  await staffSession(page);
+  await page.route("**/api/care_zoom/**", (route) =>
+    route.fulfill({
+      json: {
+        ...info,
+        eligible: false,
+        can_join: false,
+        reason: "This schedule is not enabled for video consultations.",
+      },
+    }),
+  );
+  const metadata = page.waitForResponse((response) =>
+    response.url().includes(`/care_zoom/appointments/${bookingId}/`),
+  );
+  await page.goto(
+    `/facility/${facilityId}/patient/${patientId}/appointments/${bookingId}`,
+  );
+  await metadata;
+  await expect(page.getByRole("button", { name: /Check-In/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Join video call" })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("button", { name: "Copy call link" }),
+  ).toHaveCount(0);
 });
 test("unrelated public routes retain the core login", async ({ page }) => {
   await page.goto("/login");
@@ -265,7 +322,7 @@ test("real lazy Zoom SDK prejoin loads and reports browser media denial without 
   await context.grantPermissions([], { origin: new URL(page.url()).origin });
   await page.getByRole("button", { name: "Prepare for call" }).click();
   await expect(
-    page.getByRole("heading", { name: "Check your camera and microphone" }),
+    page.getByRole("heading", { name: "Ready to join?" }),
   ).toBeVisible();
   await page.screenshot({ path: "test-results/prejoin.png", fullPage: true });
   await page.getByRole("button", { name: "Check camera", exact: true }).click();

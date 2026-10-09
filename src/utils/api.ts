@@ -3,6 +3,7 @@ import type {
   AuthKind,
   JoinToken,
   PublicAppointment,
+  ScheduleVideoSettings,
   StaffAppointment,
   StaffFacility,
 } from "../types";
@@ -71,6 +72,31 @@ export const getJoinToken = (id: string, kind: AuthKind) =>
     method: "POST",
     body: "{}",
   });
+const scheduleVideoPath = (facilityId: string, scheduleId: string) =>
+  `/api/care_zoom/facility/${encodeURIComponent(facilityId)}/schedules/${encodeURIComponent(scheduleId)}/video/`;
+export const getScheduleVideoSettings = (
+  facilityId: string,
+  scheduleId: string,
+  signal?: AbortSignal,
+) =>
+  request<ScheduleVideoSettings>(
+    scheduleVideoPath(facilityId, scheduleId),
+    "staff",
+    { signal },
+  );
+export const updateScheduleVideoSettings = (
+  facilityId: string,
+  scheduleId: string,
+  video_enabled: boolean,
+) =>
+  request<ScheduleVideoSettings>(
+    scheduleVideoPath(facilityId, scheduleId),
+    "staff",
+    {
+      method: "PATCH",
+      body: JSON.stringify({ video_enabled }),
+    },
+  );
 export async function getStaffFacility(id: string, signal?: AbortSignal) {
   if (!authToken("staff"))
     throw new ApiError(401, "Staff authentication required");

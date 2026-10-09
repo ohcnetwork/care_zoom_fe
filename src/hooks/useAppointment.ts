@@ -28,7 +28,10 @@ export function useAppointment(id: string, kind: AuthKind | null) {
           }
         })
         .catch((error) => {
-          if (!controller.signal.aborted) setError(error);
+          if (!controller.signal.aborted) {
+            setLoaded(undefined);
+            setError(error);
+          }
         });
     void update();
     const timer = window.setInterval(update, 30000);

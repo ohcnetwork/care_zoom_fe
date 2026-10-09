@@ -158,32 +158,32 @@ function AppointmentDetails({
   return (
     <aside
       aria-label={t("zoom__appointment_details")}
-      className="min-w-0 space-y-3"
+      className="zoom-appointment-sidebar min-w-0 space-y-3"
     >
-      <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-500">
+      <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <h2 className="border-b border-gray-100 px-4 py-3 text-xs font-semibold text-gray-500">
           {t("zoom__appointment_details")}
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3 p-4">
           <span
             aria-hidden="true"
-            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-800"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-800"
           >
             {patientInitials || <UserRound className="size-5" />}
           </span>
-          <div className="min-w-0">
-            <p className="break-words text-base font-semibold text-gray-900">
-              {appointment.patient.name}
-            </p>
-            <p className="text-xs text-gray-500">
+          <div className="min-w-0 flex-1">
+            <p className="mb-0.5 text-xs text-gray-500">
               {t("zoom__appointment_patient")}
             </p>
+            <p className="break-words text-base font-semibold leading-snug text-gray-900">
+              {appointment.patient.name}
+            </p>
+            <span className="mt-2 inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600">
+              {t(`zoom__appointment_status_${appointment.status}`)}
+            </span>
           </div>
         </div>
-        <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700">
-          {t(`zoom__appointment_status_${appointment.status}`)}
-        </span>
-        <dl className="space-y-4 border-t border-gray-100 pt-4 text-sm">
+        <dl className="mx-4 space-y-3 border-t border-gray-100 py-4 text-sm">
           <div className="relative min-w-0 pl-6">
             <dt className="text-xs text-gray-500">
               <Hospital
@@ -192,7 +192,7 @@ function AppointmentDetails({
               />
               {t("zoom__appointment_facility")}
             </dt>
-            <dd className="mt-0.5 break-words font-medium">
+            <dd className="mt-1 break-words font-medium text-gray-900">
               {appointment.facility.name}
             </dd>
           </div>
@@ -204,27 +204,34 @@ function AppointmentDetails({
               />
               {t("zoom__appointment_time")}
             </dt>
-            <dd className="mt-0.5 font-medium">
+            <dd className="mt-1 font-medium text-gray-900">
               <time dateTime={appointment.token_slot.start_datetime}>
-                {start.toLocaleString([], {
+                {start.toLocaleDateString([], {
                   dateStyle: "medium",
-                  timeStyle: "short",
                 })}
               </time>
-              {" – "}
-              <time dateTime={appointment.token_slot.end_datetime}>
-                {new Date(
-                  appointment.token_slot.end_datetime,
-                ).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
+              <span className="mt-0.5 block text-xs font-normal text-gray-600">
+                <time dateTime={appointment.token_slot.start_datetime}>
+                  {start.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+                {" – "}
+                <time dateTime={appointment.token_slot.end_datetime}>
+                  {new Date(
+                    appointment.token_slot.end_datetime,
+                  ).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </span>
             </dd>
           </div>
         </dl>
-        <div className="border-t border-gray-100 pt-4">
-          <h3 className="mb-1.5 text-xs font-semibold text-gray-500">
+        <div className="border-t border-gray-100 bg-gray-50/70 px-4 py-3">
+          <h3 className="mb-1 text-xs font-semibold text-gray-500">
             {t("zoom__appointment_notes")}
           </h3>
           <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-600">
@@ -237,7 +244,7 @@ function AppointmentDetails({
           <Button
             asChild
             size="lg"
-            className="h-auto min-h-10 whitespace-normal text-center"
+            className="h-auto min-h-10 justify-start whitespace-normal py-2 text-left"
           >
             <a
               href={`/facility/${encodeURIComponent(facilityId)}/patient/${encodeURIComponent(patientId)}/encounter/${encodeURIComponent(encounterId)}/updates`}
@@ -246,7 +253,7 @@ function AppointmentDetails({
             >
               <Stethoscope aria-hidden="true" />
               {t("zoom__view_encounter")}
-              <ExternalLink aria-hidden="true" />
+              <ExternalLink className="ml-auto" aria-hidden="true" />
             </a>
           </Button>
         ) : (
@@ -255,7 +262,7 @@ function AppointmentDetails({
             <Button
               asChild
               size="lg"
-              className="h-auto min-h-10 whitespace-normal text-center"
+              className="h-auto min-h-10 justify-start whitespace-normal py-2 text-left"
             >
               <a
                 href={`${appointmentUrl}${canStart ? "?from_queue=true" : ""}`}
@@ -269,7 +276,7 @@ function AppointmentDetails({
                     ? "zoom__start_consultation"
                     : "zoom__manage_appointment_encounter",
                 )}
-                <ExternalLink aria-hidden="true" />
+                <ExternalLink className="ml-auto" aria-hidden="true" />
               </a>
             </Button>
           )
@@ -277,16 +284,16 @@ function AppointmentDetails({
         <Button
           asChild
           variant="outline"
-          className="h-auto min-h-10 whitespace-normal text-center"
+          className="h-auto min-h-10 justify-start whitespace-normal py-2 text-left"
         >
           <a href={appointmentUrl} target="_blank" rel="noopener noreferrer">
             <NotebookPen aria-hidden="true" />
             {t("zoom__open_appointment_details")}
-            <ExternalLink aria-hidden="true" />
+            <ExternalLink className="ml-auto" aria-hidden="true" />
           </a>
         </Button>
       </div>
-      <p className="px-2 text-center text-xs leading-relaxed text-gray-500">
+      <p className="px-1 text-xs leading-relaxed text-gray-500">
         {t("zoom__appointment_new_tab_hint")}
       </p>
     </aside>

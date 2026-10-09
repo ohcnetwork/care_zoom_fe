@@ -16,15 +16,18 @@ export default function PatientInfoCard({
 }: Props) {
   return (
     <Base {...props}>
-      {children}
       {props.tagEntityType === "appointment" &&
-        typeof props.tagEntityId === "string" && (
-          <AppointmentActions
-            bookingId={props.tagEntityId}
-            facilityId={props.facilityId}
-            patientId={props.patient?.id}
-          />
-        )}
+      typeof props.tagEntityId === "string" ? (
+        <AppointmentActions
+          bookingId={props.tagEntityId}
+          facilityId={props.facilityId}
+          patientId={props.patient?.id}
+        >
+          {children}
+        </AppointmentActions>
+      ) : (
+        children
+      )}
     </Base>
   );
 }
