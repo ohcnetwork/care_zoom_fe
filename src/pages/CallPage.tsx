@@ -248,9 +248,45 @@ export default function CallPage({
                   </p>
                 </div>
                 {data.reason && (
-                  <p role="status" className="rounded-md bg-gray-100 p-3">
-                    {data.reason}
-                  </p>
+                  <div className="space-y-1.5 rounded-md bg-gray-100 p-3">
+                    <p role="status" className="text-sm text-gray-800">
+                      {data.reason}
+                    </p>
+                    <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
+                      <CalendarDays
+                        className="size-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        {t("zoom__appointment_scheduled_for", {
+                          datetime: new Date(
+                            data.start_datetime,
+                          ).toLocaleString([], {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          }),
+                        })}
+                      </span>
+                      {!data.can_join &&
+                        (Date.now() < new Date(data.join_opens_at).getTime() ? (
+                          <span>
+                            ·{" "}
+                            {t("zoom__join_opens_before", {
+                              count: Math.round(
+                                (new Date(data.start_datetime).getTime() -
+                                  new Date(data.join_opens_at).getTime()) /
+                                  60000,
+                              ),
+                            })}
+                          </span>
+                        ) : (
+                          Date.now() >
+                            new Date(data.join_closes_at).getTime() && (
+                            <span>· {t("zoom__join_window_closed")}</span>
+                          )
+                        ))}
+                    </p>
+                  </div>
                 )}
                 {deviceAccessError && (
                   <p
