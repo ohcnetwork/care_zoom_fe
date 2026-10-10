@@ -55,11 +55,15 @@ type Runtime = {
   listeners: [string, SDKListener][];
   camera?: LocalVideoTrack;
   microphone?: LocalAudioTrack;
-  meter?: ReturnType<typeof setInterval>;
   tiles: Map<number, Tile>;
 };
 type Phase =
-  "loading" | "prejoin" | "joining" | "connected" | "reconnecting" | "ended";
+  | "loading"
+  | "prejoin"
+  | "joining"
+  | "connected"
+  | "reconnecting"
+  | "ended";
 
 // The SDK owns one client per browser page. A new mount must wait for the previous teardown.
 let previousCleanup: Promise<void> = Promise.resolve();
@@ -119,8 +123,6 @@ async function checked(result: Promise<unknown>) {
     throw value;
 }
 async function stopPreview(runtime: Runtime) {
-  if (runtime.meter) clearInterval(runtime.meter);
-  runtime.meter = undefined;
   await Promise.allSettled([
     runtime.camera?.stop(),
     runtime.microphone?.stop(),
@@ -219,7 +221,6 @@ export default function ZoomCall({
   const [checkingMic, setCheckingMic] = useState(false);
   const [audioOn, setAudioOn] = useState(false);
   const [muted, setMuted] = useState(true);
-  const [volume, setVolume] = useState(0);
   const [host, setHost] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [devicePanel, setDevicePanel] = useState<"audio" | "camera" | null>(
@@ -289,6 +290,73 @@ export default function ZoomCall({
       ownerDocument?.removeEventListener("keydown", escape);
     };
   }, [devicePanel, compact, connected]);
+
+  // ── Live audio level meter ────────────────────────────────────────────────
+  // Drives the mic-check bar from a plain Web Audio analyser against the
+  // selected device, independent of the SDK's own (unreliable before join)
+  // volume reporting.
+  const [micLevel, setMicLevel] = useState(0);
+  const vizAudioCtxRef = useRef<AudioContext | null>(null);
+  const vizAnimRef = useRef<number | null>(null);
+  const vizStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (!checkingMic) {
+      if (vizAnimRef.current) cancelAnimationFrame(vizAnimRef.current);
+      vizAudioCtxRef.current?.close();
+      vizAudioCtxRef.current = null;
+      vizStreamRef.current?.getTracks().forEach((track) => track.stop());
+      vizStreamRef.current = null;
+      setMicLevel(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    navigator.mediaDevices
+      .getUserMedia({
+        audio: microphoneId ? { deviceId: { exact: microphoneId } } : true,
+        video: false,
+      })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        vizStreamRef.current = stream;
+
+        const ctx = new AudioContext();
+        vizAudioCtxRef.current = ctx;
+
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.75;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+
+        const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+        const tick = () => {
+          analyser.getByteFrequencyData(freqData);
+          const average =
+            freqData.reduce((sum, value) => sum + value, 0) / freqData.length;
+          setMicLevel(Math.min(100, (average / 255) * 100));
+          vizAnimRef.current = requestAnimationFrame(tick);
+        };
+        vizAnimRef.current = requestAnimationFrame(tick);
+      })
+      .catch(() => {
+        /* mic permission denied – level stays at 0 */
+      });
+
+    return () => {
+      cancelled = true;
+      if (vizAnimRef.current) cancelAnimationFrame(vizAnimRef.current);
+      vizAudioCtxRef.current?.close();
+      vizAudioCtxRef.current = null;
+      vizStreamRef.current?.getTracks().forEach((track) => track.stop());
+      vizStreamRef.current = null;
+    };
+  }, [checkingMic, microphoneId]);
 
   function errorKey(cause: unknown, fallback = "zoom__media_failed") {
     const detail = cause as {
@@ -451,7 +519,6 @@ export default function ZoomCall({
     setCheckingMic(false);
     setAudioOn(false);
     setMuted(true);
-    setVolume(0);
     setDevicePanel(null);
     setStartedAt(undefined);
     setElapsed(0);
@@ -597,12 +664,7 @@ export default function ZoomCall({
       if (current.microphone) {
         await checked(current.microphone.stop());
         current.microphone = undefined;
-        if (current.meter) clearInterval(current.meter);
-        current.meter = undefined;
-        if (!current.disposed) {
-          setCheckingMic(false);
-          setVolume(0);
-        }
+        if (!current.disposed) setCheckingMic(false);
       } else {
         current.microphone = current.sdk.createLocalAudioTrack(
           microphoneId || undefined,
@@ -613,15 +675,6 @@ export default function ZoomCall({
           await checked(current.microphone.unmute());
           if (current.disposed) return;
           setCheckingMic(true);
-          current.meter = setInterval(() => {
-            if (!current.disposed)
-              setVolume(
-                Math.min(
-                  100,
-                  Math.max(0, current.microphone?.getCurrentVolume() ?? 0),
-                ),
-              );
-          }, 150);
         } catch (cause) {
           await current.microphone.stop().catch(() => undefined);
           current.microphone = undefined;
@@ -641,7 +694,6 @@ export default function ZoomCall({
         await stopPreview(current);
         if (current.disposed) return;
         setCheckingMic(false);
-        setVolume(0);
         try {
           await checked(
             current.client.join(
@@ -779,7 +831,7 @@ export default function ZoomCall({
         {t(`zoom__${kind}`)}
         <select
           aria-label={t(`zoom__${kind}`)}
-          className="block h-10 w-full rounded-md border border-gray-400 bg-white px-3 text-gray-900"
+          className="block h-9 w-full rounded-md border border-gray-400 bg-white px-3 text-sm text-gray-900"
           value={value}
           disabled={busy || phase === "reconnecting"}
           onChange={(event) => changeDevice(kind, event.target.value)}
@@ -930,12 +982,12 @@ export default function ZoomCall({
               ) : (
                 <MicOff aria-hidden="true" />
               )}
-              <span>
+              <span className="zoom-mic-label">
                 {t(checkingMic ? "zoom__mic_level" : "zoom__mic_check_hint")}
               </span>
               <progress
                 aria-label={t("zoom__mic_level")}
-                value={volume}
+                value={micLevel}
                 max={100}
               />
             </div>
@@ -945,10 +997,6 @@ export default function ZoomCall({
               <h3 className="text-lg font-semibold">
                 {t("zoom__ready_to_join")}
               </h3>
-              <p className="text-sm text-gray-600">
-                {t("zoom__call_title")}
-                {patientName && ` · ${patientName}`}
-              </p>
             </div>
             <div className="zoom-device-settings">
               {microphoneSelect}

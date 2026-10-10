@@ -19,6 +19,7 @@ export class ApiError extends Error {
 }
 export function authToken(kind: AuthKind): string | null {
   if (kind === "staff") return localStorage.getItem("care_access_token");
+  if (kind === "guest") return null;
   try {
     return (
       JSON.parse(localStorage.getItem("care_patient_token") || "null")?.token ??
@@ -61,16 +62,18 @@ export async function request<T>(
   return response.json() as Promise<T>;
 }
 const appointmentPath = (id: string, kind: AuthKind) =>
-  `/api/care_zoom/${kind === "patient" ? "otp/" : ""}appointments/${encodeURIComponent(id)}/`;
+  `/api/care_zoom/${kind === "patient" ? "otp/" : kind === "guest" ? "guest/" : ""}appointments/${encodeURIComponent(id)}/`;
 export const getAppointment = (
   id: string,
   kind: AuthKind,
   signal?: AbortSignal,
 ) => request<AppointmentInfo>(appointmentPath(id, kind), kind, { signal });
-export const getJoinToken = (id: string, kind: AuthKind) =>
+export const getJoinToken = (id: string, kind: AuthKind, guestName?: string) =>
   request<JoinToken>(`${appointmentPath(id, kind)}token/`, kind, {
     method: "POST",
-    body: "{}",
+    body: JSON.stringify(
+      kind === "guest" ? { display_name: guestName, consent: true } : {},
+    ),
   });
 const scheduleVideoPath = (facilityId: string, scheduleId: string) =>
   `/api/care_zoom/facility/${encodeURIComponent(facilityId)}/schedules/${encodeURIComponent(scheduleId)}/video/`;
@@ -119,17 +122,6 @@ export async function getStaffAppointment(
     { signal },
   );
 }
-export const sendOtp = (phone: string) =>
-  request("/api/v1/otp/send/", null, {
-    method: "POST",
-    body: JSON.stringify({ phone_number: phone }),
-  });
-export const loginOtp = (phone: string, otp: string) =>
-  request<{ access: string }>("/api/v1/otp/login/", null, {
-    method: "POST",
-    body: JSON.stringify({ phone_number: phone, otp }),
-  });
-
 export async function getVideoAppointments(
   signal: AbortSignal,
 ): Promise<AppointmentInfo[]> {

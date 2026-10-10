@@ -11,5 +11,3 @@ export const staffCallPath = (
   `/facility/${encodeURIComponent(facilityId)}/patient/${encodeURIComponent(patientId)}/appointments/${encodeURIComponent(bookingId)}/video`;
 export const callUrl = (id: string) =>
   new URL(callPath(id), window.location.origin).href;
-export const staffLoginUrl = (id: string) =>
-  `/login?redirect=${encodeURIComponent(callUrl(id))}`;

@@ -23,6 +23,8 @@ export default defineConfig({
     // Remote CSS is not auto-injected by the host; don't depend on packages shipping their own.
     cssCodeSplit: false,
     modulePreload: { polyfill: false },
+    // The lazy @zoom/videosdk chunk is ~1MB by itself and loads only after "Prepare for call".
+    chunkSizeWarningLimit: 1100,
     rollupOptions: {
       external: [],
       input: { main: "./index.html" },
@@ -31,10 +33,13 @@ export default defineConfig({
   },
   resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
   preview: {
-    port: 25418,
-    host: "127.0.0.1",
-    strictPort: true,
-    cors: true,
+    port: 10125,
     allowedHosts: true,
+    host: "0.0.0.0",
+    cors: {
+      origin: "*",
+      methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+      credentials: true,
+    },
   },
 });

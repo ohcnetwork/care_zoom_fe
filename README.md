@@ -23,10 +23,10 @@ This checkout uses Node 24 and npm. The isolated scaffold runtime is `/Users/gig
 ```sh
 cd /Users/gigin/care_scaffold/care_zoom_fe
 npm ci
-npm run dev
+npm run start
 ```
 
-`npm run dev` builds, serves the remote on `127.0.0.1:25418`, then watches the plugin sources. It fails if the saved port is occupied. If running only the built artifact, use `npm run build` followed by `npm run preview`. Hard reload the host after a plugin rebuild.
+`npm run start` runs `vite build` in watch mode (via nodemon) alongside `vite preview`, rebuilding and re-serving the remote on every source change. If running only the built artifact, use `npm run build` followed by `npm run preview`. Hard reload the host after a plugin rebuild.
 
 In other terminals, start only this workspace's services:
 

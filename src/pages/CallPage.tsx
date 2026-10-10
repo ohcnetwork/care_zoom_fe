@@ -1,11 +1,17 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CalendarDays, Video } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarDays,
+  Stethoscope,
+  UserRound,
+  Video,
+} from "lucide-react";
 import Page from "../components/Page";
-import PatientLogin from "../components/PatientLogin";
 import { Button } from "../components/ui/button";
 import { authKind, useCareAuth } from "../hooks/useCareAuth";
 import { useAppointment } from "../hooks/useAppointment";
+import { useGuestSession } from "../hooks/useGuestSession";
 import { ApiError, getJoinToken } from "../utils/api";
 import { staffCallPath } from "../utils/routes";
 import type { AppointmentInfo } from "../types";
@@ -14,6 +20,32 @@ const ZoomCall = lazy(() => import("../components/ZoomCall"));
 const StaffAppointmentDetails = lazy(
   () => import("../components/StaffAppointmentDetails"),
 );
+function ParticipantCard({
+  icon,
+  badge,
+  name,
+  description,
+}: {
+  icon: React.ReactNode;
+  badge: string;
+  name: string;
+  description: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-700">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <span className="inline-block rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary-800 uppercase">
+          {badge}
+        </span>
+        <p className="truncate font-semibold text-gray-900">{name}</p>
+        <p className="truncate text-sm text-gray-500">{description}</p>
+      </div>
+    </div>
+  );
+}
 export default function CallPage({
   bookingId,
   facilityId,
@@ -26,19 +58,27 @@ export default function CallPage({
   const { t } = useTranslation();
   const zoomCall = useRef<ZoomCallHandle>(null);
   const auth = useCareAuth();
-  const kind = authKind(auth);
+  const guestSession = useGuestSession(bookingId);
+  // No sign-in gate on the public link: fall back to an anonymous guest identity immediately.
+  const kind = authKind(auth) ?? "guest";
   const identity =
     kind === "staff"
       ? `staff:${auth?.user?.id}`
       : kind === "patient"
         ? `patient:${auth?.patientToken?.phoneNumber}`
-        : null;
-  const { data, error, retry } = useAppointment(bookingId, kind);
+        : `guest:${guestSession.session.id}`;
+  const { data, error, retry } = useAppointment(
+    bookingId,
+    kind,
+    guestSession.session.id,
+  );
   const [active, setActive] = useState<{
     identity: string;
     bookingId: string;
     info: AppointmentInfo;
   }>();
+  const [requestingDeviceAccess, setRequestingDeviceAccess] = useState(false);
+  const [deviceAccessError, setDeviceAccessError] = useState(false);
   const call =
     active?.identity === identity && active?.bookingId === bookingId && kind
       ? active
@@ -52,7 +92,26 @@ export default function CallPage({
     !!staffContext &&
     staffContext.facility_id === facilityId &&
     staffContext.patient_id === patientId;
-  const showAppointment = !!call || (!!kind && !error && !expired);
+  const showAppointment = !!call || !error;
+  async function prepareCall() {
+    setDeviceAccessError(false);
+    setRequestingDeviceAccess(true);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("media_devices_unavailable");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      stream.getTracks().forEach((track) => track.stop());
+      setActive({ identity, bookingId, info: data! });
+    } catch {
+      setDeviceAccessError(true);
+    } finally {
+      setRequestingDeviceAccess(false);
+    }
+  }
   useEffect(() => {
     if (staffContext && !staffRouteReady) {
       window.location.replace(
@@ -71,7 +130,7 @@ export default function CallPage({
   ]);
   return (
     <Page>
-      <div className="zoom-call-page mx-auto my-4 w-full max-w-[100rem] px-3 text-secondary-900 sm:px-4">
+      <div className="zoom-call-page mx-auto my-4 w-full max-w-6xl px-3 text-secondary-900 sm:px-4">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
@@ -81,11 +140,6 @@ export default function CallPage({
               <h1 className="text-lg font-bold tracking-tight text-gray-900">
                 {t("zoom__call_title")}
               </h1>
-              {kind !== "staff" && showAppointment && metadata && (
-                <p className="mt-0.5 break-words text-sm text-gray-600">
-                  {metadata.patient_name} · {metadata.practitioner_name}
-                </p>
-              )}
             </div>
           </div>
           {kind !== "staff" && showAppointment && metadata && (
@@ -123,28 +177,23 @@ export default function CallPage({
                     key={`${identity}:${bookingId}`}
                     patientName={call.info.patient_name}
                     practitionerName={call.info.practitioner_name}
-                    requestToken={() => getJoinToken(bookingId, kind!)}
+                    requestToken={() =>
+                      getJoinToken(bookingId, kind, guestSession.session.name)
+                    }
                     onExit={() => setActive(undefined)}
                   />
                 </Suspense>
-              </>
-            ) : !kind || expired ? (
-              <>
-                {expired && (
-                  <p role="alert" className="mb-3 text-red-700">
-                    {t("zoom__session_expired")}
-                  </p>
-                )}
-                <PatientLogin bookingId={bookingId} />
               </>
             ) : error ? (
               <div role="alert">
                 <p>
                   {t(
-                    error instanceof ApiError &&
-                      [403, 404].includes(error.status)
-                      ? "zoom__unavailable"
-                      : "zoom__load_failed",
+                    expired
+                      ? "zoom__session_expired"
+                      : error instanceof ApiError &&
+                          [403, 404].includes(error.status)
+                        ? "zoom__unavailable"
+                        : "zoom__load_failed",
                   )}
                 </p>
                 <Button variant="outline" onClick={retry}>
@@ -163,6 +212,33 @@ export default function CallPage({
               </div>
             ) : (
               <div className="space-y-4">
+                {kind !== "staff" && (
+                  <div className="flex flex-col gap-4 border-b border-gray-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
+                    <ParticipantCard
+                      icon={
+                        <Stethoscope className="size-5" aria-hidden="true" />
+                      }
+                      badge={t("zoom__doctor_badge")}
+                      name={data.practitioner_name}
+                      description={t("zoom__doctor_description")}
+                    />
+                    <div className="flex shrink-0 flex-col items-center gap-1 text-gray-400 sm:px-2">
+                      <span className="hidden text-[11px] font-medium tracking-wide uppercase sm:block">
+                        {t("zoom__consultation_with")}
+                      </span>
+                      <ArrowRight
+                        className="size-5 rotate-90 sm:rotate-0"
+                        aria-hidden="true"
+                      />
+                    </div>
+                    <ParticipantCard
+                      icon={<UserRound className="size-5" aria-hidden="true" />}
+                      badge={t("zoom__patient_badge")}
+                      name={data.patient_name}
+                      description={t("zoom__patient_description")}
+                    />
+                  </div>
+                )}
                 <div>
                   <h2 className="text-lg font-semibold">
                     {t("zoom__prejoin")}
@@ -176,14 +252,25 @@ export default function CallPage({
                     {data.reason}
                   </p>
                 )}
+                {deviceAccessError && (
+                  <p
+                    role="alert"
+                    className="rounded-md bg-red-50 p-3 text-sm text-red-800"
+                  >
+                    {t("zoom__device_access_failed")}
+                  </p>
+                )}
                 {data.can_join && identity && (
                   <Button
-                    onClick={() =>
-                      setActive({ identity, bookingId, info: data })
-                    }
+                    disabled={requestingDeviceAccess}
+                    onClick={prepareCall}
                   >
                     <Video aria-hidden="true" />
-                    {t("zoom__prepare")}
+                    {t(
+                      requestingDeviceAccess
+                        ? "zoom__checking_devices"
+                        : "zoom__prepare",
+                    )}
                   </Button>
                 )}
               </div>

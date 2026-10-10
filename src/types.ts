@@ -1,4 +1,4 @@
-export type AuthKind = "staff" | "patient";
+export type AuthKind = "staff" | "patient" | "guest";
 export interface ScheduleVideoSettings {
   schedule_id: string;
   video_enabled: boolean;
@@ -6,6 +6,12 @@ export interface ScheduleVideoSettings {
 export interface PatientToken {
   token: string;
   phoneNumber: string;
+  createdAt: string;
+}
+/** Stored client-side only; the booking link is the sole secret protecting the call. */
+export interface GuestSession {
+  id: string;
+  name: string;
   createdAt: string;
 }
 export interface CareAuth {

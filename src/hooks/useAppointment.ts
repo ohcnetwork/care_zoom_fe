@@ -2,10 +2,18 @@ import { useEffect, useState } from "react";
 import type { AppointmentInfo, AuthKind } from "../types";
 import { getAppointment } from "../utils/api";
 import { useCareAuth } from "./useCareAuth";
-export function useAppointment(id: string, kind: AuthKind | null) {
+export function useAppointment(
+  id: string,
+  kind: AuthKind | null,
+  guestId?: string,
+) {
   const auth = useCareAuth();
   const identity =
-    kind === "patient" ? auth?.patientToken?.token : auth?.user?.id;
+    kind === "patient"
+      ? auth?.patientToken?.token
+      : kind === "guest"
+        ? guestId
+        : auth?.user?.id;
   const identityKey = `${id}:${kind}:${identity ?? ""}`;
   const [loaded, setLoaded] = useState<{
     key: string;
