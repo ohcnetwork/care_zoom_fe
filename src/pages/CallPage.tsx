@@ -140,6 +140,7 @@ export default function CallPage({
     bookingId: string;
     info: AppointmentInfo;
   }>();
+  const appLogo = window.__CORE_ENV__?.mainLogo?.dark;
   const call =
     active?.identity === identity && active?.bookingId === bookingId && kind
       ? active
@@ -184,15 +185,19 @@ export default function CallPage({
         )}
       >
         <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 border border-primary-200 text-primary-500">
-              <Video className="size-4" aria-hidden="true" />
-            </span>
-            <div className="min-w-0">
+          <div className="flex w-full justify-between gap-2.5">
+            <div className="flex gap-2 items-center justify-center min-w-0">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 border border-primary-200 text-primary-500">
+                <Video className="size-4" aria-hidden="true" />
+              </span>
+
               <h1 className="text-lg font-semibold tracking-tight text-gray-900">
                 {t("zoom__call_title")}
               </h1>
             </div>
+            {kind !== "staff" && appLogo && (
+              <img src={appLogo} alt="" className="w-20 object-contain" />
+            )}
           </div>
           {/* {kind !== "staff" && showAppointment && metadata && (
             <div className="flex items-center gap-2 text-xs text-gray-500">

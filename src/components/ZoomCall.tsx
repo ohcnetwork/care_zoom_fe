@@ -630,7 +630,6 @@ export default function ZoomCall({
       ].forEach((event) => listen(event, enqueueRefresh));
       listen("auto-play-audio-failed", () => {
         setAudioOn(false);
-        setNotice("zoom__enable_audio_hint");
       });
       listen("active-media-failed", () => {
         setError("zoom__media_failed");
@@ -758,7 +757,6 @@ export default function ZoomCall({
         setHost(token.role === "host");
         setStartedAt(Date.now());
         setPhase("connected");
-        setNotice("zoom__enable_audio_hint");
         if (cameraOn) {
           try {
             await checked(

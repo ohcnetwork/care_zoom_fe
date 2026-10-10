@@ -68,7 +68,6 @@
   "zoom__join_window_closed": "The join window for this appointment has closed.",
   "zoom__call_not_available": "This video appointment isn't available right now.",
   "zoom__enable_audio": "Enable audio",
-  "zoom__enable_audio_hint": "Select Enable audio to hear and speak in the call.",
   "zoom__mute": "Mute",
   "zoom__unmute": "Unmute",
   "zoom__leave": "Leave",

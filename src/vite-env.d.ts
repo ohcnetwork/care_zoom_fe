@@ -5,7 +5,10 @@ declare global {
   interface Window {
     CARE_API_URL: string;
     AuthUserContext?: Context<CareAuth | null>;
-    __CORE_ENV__?: { disablePatientLogin?: boolean };
+    __CORE_ENV__?: {
+      disablePatientLogin?: boolean;
+      mainLogo?: { light?: string; dark?: string };
+    };
   }
 }
 export {};
