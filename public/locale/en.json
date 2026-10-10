@@ -1,6 +1,8 @@
 {
   "zoom__appointment_actions": "Appointment actions",
   "zoom__join": "Join video call",
+  "zoom__more_actions": "More actions",
+  "zoom__edit_schedule": "Edit schedule",
   "zoom__schedule_mode": "Consultation mode",
   "zoom__schedule_mode_description": "Choose how appointments in this schedule take place.",
   "zoom__schedule_mode_warning": "This change applies to all existing and future appointments in this schedule. Inform patients before changing their consultation mode.",
@@ -13,6 +15,7 @@
   "zoom__schedule_mode_save_failed": "Could not save the consultation mode. Your selection has been kept; please try again.",
   "zoom__copy": "Copy call link",
   "zoom__copied": "Link copied",
+  "zoom__copy_success_toast": "Call link copied to clipboard",
   "zoom__copy_failed": "Could not copy the link.",
   "zoom__open_call": "Open video call",
   "zoom__appointments": "Video appointments",

@@ -1004,7 +1004,7 @@ export default function ZoomCall({
               {speakerSelect}
             </div>
             <div className="zoom-prejoin-footer">
-              <Button disabled={busy} onClick={join}>
+              <Button disabled={busy} onClick={join} size="lg">
                 <Video />
                 {t("zoom__join")}
               </Button>

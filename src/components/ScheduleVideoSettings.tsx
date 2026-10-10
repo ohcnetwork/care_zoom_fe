@@ -1,11 +1,17 @@
 import { useEffect, useId, useRef, useState, type ComponentType } from "react";
-import { Video } from "lucide-react";
+import { MoreVertical, Pencil, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   getScheduleVideoSettings,
   updateScheduleVideoSettings,
 } from "../utils/api";
 import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Page from "./Page";
 
 type Props = {
@@ -13,26 +19,58 @@ type Props = {
   template: { id: string; name: string };
   facilityId: string;
   resourceType: string;
+  trigger?: React.ReactNode;
+  onOpenChange?: (open: boolean) => void;
   [key: string]: unknown;
 };
 
 export default function ScheduleVideoSettings({
   __base: Base,
+  trigger,
+  onOpenChange,
   ...props
 }: Props) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const isPractitioner = props.resourceType === "practitioner";
   return (
     <>
-      <Base {...props} />
-      {props.resourceType === "practitioner" && (
+      <Base
+        {...props}
+        onOpenChange={onOpenChange}
+        trigger={
+          isPractitioner ? (
+            <span className="hidden" aria-hidden="true" />
+          ) : (
+            trigger
+          )
+        }
+      />
+      {isPractitioner && (
         <Page>
-          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-            <Video />
-            <span className="sr-only sm:not-sr-only">
-              {t("zoom__schedule_mode")}
-            </span>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                title={t("zoom__more_actions")}
+              >
+                <MoreVertical className="size-4" />
+                <span className="sr-only">{t("zoom__more_actions")}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onOpenChange?.(true)}>
+                <Pencil />
+                {t("zoom__edit_schedule")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setOpen(true)}>
+                <Video />
+                {t("zoom__schedule_mode")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {open && (
             <ScheduleModeDialog
               key={`${props.facilityId}:${props.template.id}`}

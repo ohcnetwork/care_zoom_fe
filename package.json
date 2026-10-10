@@ -16,6 +16,7 @@
     "test:host:live": "CARE_REAL_BACKEND=1 playwright test"
   },
   "dependencies": {
+    "@radix-ui/react-dropdown-menu": "^2.1.25",
     "@radix-ui/react-slot": "^1.2.2",
     "@tailwindcss/vite": "^4.1.4",
     "@zoom/videosdk": "2.5.0",
@@ -23,6 +24,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.575.0",
     "react-i18next": "^15.4.1",
+    "sonner": "^2.0.8",
     "tailwind-merge": "^3.2.0",
     "tailwindcss": "^4.1.4"
   },
