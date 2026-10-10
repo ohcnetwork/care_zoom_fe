@@ -237,11 +237,14 @@
     overflow: hidden;
     border-radius: 10px;
     background: #262626;
+    width: 100%;
+    min-height: 450px;
+    height: min(65vh, 680px);
   }
   .zoom-preview {
     display: block;
     width: 100%;
-    aspect-ratio: 16/9;
+    height: 100%;
     object-fit: contain;
   }
   .zoom-preview-name {
@@ -747,7 +750,11 @@
       font-size: 16px;
     }
     .zoom-preview {
-      min-height: 240px;
+      min-height: 0;
+    }
+    .zoom-preview-stage {
+      height: min(62svh, 480px);
+      min-height: min(320px, 48svh);
     }
     .zoom-device-settings select {
       height: 40px;

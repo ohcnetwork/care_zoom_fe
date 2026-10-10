@@ -38,10 +38,13 @@ export function ZoomCallSkeleton() {
     <div className="zoom-prejoin">
       <div className="zoom-prejoin-preview">
         <Skeleton className="zoom-preview-stage aspect-video w-full" />
-        <Skeleton className="h-10 w-full rounded-md" />
-        <Skeleton className="h-6 w-32" />
-        <Skeleton className="h-10 w-full rounded-md" />
-        <Skeleton className="h-4 w-full" />
+        <div className="flex justify-between gap-2">
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-32" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+          <Skeleton className="h-10 w-36 shrink-0 rounded-md" />
+        </div>
       </div>
     </div>
   );

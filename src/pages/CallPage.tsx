@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  ArrowRight,
   CalendarDays,
   Stethoscope,
   UserRound,
   Video,
+  VideoOff,
 } from "lucide-react";
 import Page from "../components/Page";
 import { Button } from "../components/ui/button";
@@ -21,34 +21,92 @@ import {
   PrejoinCardSkeleton,
   ZoomCallSkeleton,
 } from "../components/LoadingSkeletons";
+import { cn } from "@/lib/utils";
 const ZoomCall = lazy(() => import("../components/ZoomCall"));
 const StaffAppointmentDetails = lazy(
   () => import("../components/StaffAppointmentDetails"),
 );
-function ParticipantCard({
-  icon,
-  badge,
-  name,
-  description,
-}: {
-  icon: React.ReactNode;
-  badge: string;
-  name: string;
-  description: string;
-}) {
+/** Mirrors StaffAppointmentDetails' card so patient/guest and staff routes share the same sidebar look. */
+function AppointmentSummaryCard({ metadata }: { metadata: AppointmentInfo }) {
+  const { t } = useTranslation();
+  const start = new Date(metadata.start_datetime);
+  const end = new Date(metadata.end_datetime);
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-700">
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <span className="inline-block rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-primary-800 uppercase">
-          {badge}
-        </span>
-        <p className="truncate font-semibold text-gray-900">{name}</p>
-        <p className="truncate text-sm text-gray-500">{description}</p>
-      </div>
-    </div>
+    <aside
+      aria-label={t("zoom__appointment_details")}
+      className="min-w-0 space-y-3"
+    >
+      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <h2 className="border-b border-gray-100 bg-linear-to-r from-primary-100 to-transparent px-4 py-3 text-sm font-semibold text-gray-500">
+          {t("zoom__appointment_details")}
+        </h2>
+        <div className="divide-y divide-gray-100">
+          <div className="flex items-start gap-3 p-4">
+            <span
+              aria-hidden="true"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700"
+            >
+              <Stethoscope className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="mb-0.5 text-xs text-gray-500">
+                {t("zoom__doctor_badge")}
+              </p>
+              <p className="break-words text-base font-semibold leading-snug text-gray-900">
+                {metadata.practitioner_name}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4">
+            <span
+              aria-hidden="true"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700"
+            >
+              <UserRound className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="mb-0.5 text-xs text-gray-500">
+                {t("zoom__patient_badge")}
+              </p>
+              <p className="break-words text-base font-semibold leading-snug text-gray-900">
+                {metadata.patient_name}
+              </p>
+            </div>
+          </div>
+        </div>
+        <dl className="mx-4 space-y-3 border-t border-gray-100 py-4 text-sm">
+          <div className="relative min-w-0 pl-6">
+            <dt className="text-xs text-gray-500">
+              <CalendarDays
+                className="absolute top-0.5 left-0 size-4 text-gray-400"
+                aria-hidden="true"
+              />
+              {t("zoom__appointment_time")}
+            </dt>
+            <dd className="mt-1 font-medium text-gray-900">
+              <time dateTime={metadata.start_datetime}>
+                {start.toLocaleDateString([], { dateStyle: "medium" })}
+              </time>
+              <span className="mt-0.5 block text-xs font-normal text-gray-600">
+                <time dateTime={metadata.start_datetime}>
+                  {start.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+                {" – "}
+                <time dateTime={metadata.end_datetime}>
+                  {end.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </span>
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
   );
 }
 export default function CallPage({
@@ -119,7 +177,12 @@ export default function CallPage({
   ]);
   return (
     <Page>
-      <div className="zoom-call-page mx-auto w-full max-w-6xl px-3 text-secondary-900 sm:px-4">
+      <div
+        className={cn(
+          "zoom-call-page mx-auto w-full max-w-6xl px-3 text-secondary-900 sm:px-4",
+          kind !== "staff" && "py-4",
+        )}
+      >
         <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 border border-primary-200 text-primary-500">
@@ -131,7 +194,7 @@ export default function CallPage({
               </h1>
             </div>
           </div>
-          {kind !== "staff" && showAppointment && metadata && (
+          {/* {kind !== "staff" && showAppointment && metadata && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <CalendarDays className="size-4 shrink-0" aria-hidden="true" />
               <time dateTime={metadata.start_datetime}>
@@ -141,11 +204,12 @@ export default function CallPage({
                 })}
               </time>
             </div>
-          )}
+          )} */}
         </header>
         <div
           className={
-            kind === "staff" && staffRouteReady
+            (kind === "staff" && staffRouteReady) ||
+            (kind !== "staff" && metadata)
               ? "zoom-call-layout grid items-start gap-4"
               : "mx-auto max-w-6xl"
           }
@@ -199,87 +263,62 @@ export default function CallPage({
                   {t("zoom__retry")}
                 </Button>
               </div>
+            ) : data.can_join ? (
+              <p
+                role="status"
+                className="py-10 text-center text-sm text-gray-500"
+              >
+                {t("zoom__loading")}
+              </p>
             ) : (
-              <div className="space-y-4">
-                {kind !== "staff" && (
-                  <div className="flex flex-col gap-4 border-b border-gray-200 pb-5 sm:flex-row sm:items-center sm:justify-between">
-                    <ParticipantCard
-                      icon={
-                        <Stethoscope className="size-5" aria-hidden="true" />
-                      }
-                      badge={t("zoom__doctor_badge")}
-                      name={data.practitioner_name}
-                      description={t("zoom__doctor_description")}
-                    />
-                    <div className="flex shrink-0 flex-col items-center gap-1 text-gray-400 sm:px-2">
-                      <span className="hidden text-[11px] font-medium tracking-wide uppercase sm:block">
-                        {t("zoom__consultation_with")}
-                      </span>
-                      <ArrowRight
-                        className="size-5 rotate-90 sm:rotate-0"
-                        aria-hidden="true"
-                      />
-                    </div>
-                    <ParticipantCard
-                      icon={<UserRound className="size-5" aria-hidden="true" />}
-                      badge={t("zoom__patient_badge")}
-                      name={data.patient_name}
-                      description={t("zoom__patient_description")}
-                    />
-                  </div>
-                )}
-                <div>
-                  <h2 className="text-lg font-semibold">
-                    {t("zoom__prejoin")}
+              <div className="flex flex-col items-center gap-3 py-10 text-center">
+                <span className="flex size-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                  <VideoOff className="size-6" aria-hidden="true" />
+                </span>
+                <div className="space-y-1">
+                  <h2 className="text-base font-semibold text-gray-900">
+                    {data.reason || t("zoom__call_not_available")}
                   </h2>
-                  <p className="mt-1 text-sm text-gray-600">
-                    {t("zoom__prejoin_help")}
-                  </p>
-                </div>
-                {data.reason && (
-                  <div className="space-y-1.5 rounded-md bg-gray-100 p-3">
-                    <p role="status" className="text-sm text-gray-800">
-                      {data.reason}
-                    </p>
-                    <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-gray-500">
-                      <CalendarDays
-                        className="size-3.5 shrink-0"
-                        aria-hidden="true"
-                      />
-                      <span>
-                        {t("zoom__appointment_scheduled_for", {
-                          datetime: new Date(
-                            data.start_datetime,
-                          ).toLocaleString([], {
+                  <p className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-gray-500">
+                    <CalendarDays
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      {t("zoom__appointment_scheduled_for", {
+                        datetime: new Date(data.start_datetime).toLocaleString(
+                          [],
+                          {
                             dateStyle: "medium",
                             timeStyle: "short",
-                          }),
+                          },
+                        ),
+                      })}
+                    </span>
+                    {Date.now() < new Date(data.join_opens_at).getTime() ? (
+                      <span>
+                        ·{" "}
+                        {t("zoom__join_opens_before", {
+                          count: Math.round(
+                            (new Date(data.start_datetime).getTime() -
+                              new Date(data.join_opens_at).getTime()) /
+                              60000,
+                          ),
                         })}
                       </span>
-                      {!data.can_join &&
-                        (Date.now() < new Date(data.join_opens_at).getTime() ? (
-                          <span>
-                            ·{" "}
-                            {t("zoom__join_opens_before", {
-                              count: Math.round(
-                                (new Date(data.start_datetime).getTime() -
-                                  new Date(data.join_opens_at).getTime()) /
-                                  60000,
-                              ),
-                            })}
-                          </span>
-                        ) : (
-                          Date.now() >
-                            new Date(data.join_closes_at).getTime() && (
-                            <span>· {t("zoom__join_window_closed")}</span>
-                          )
-                        ))}
-                    </p>
-                  </div>
-                )}
+                    ) : (
+                      Date.now() > new Date(data.join_closes_at).getTime() && (
+                        <span>· {t("zoom__join_window_closed")}</span>
+                      )
+                    )}
+                  </p>
+                </div>
               </div>
             )}
           </section>
+          {kind !== "staff" && metadata && (
+            <AppointmentSummaryCard metadata={metadata} />
+          )}
           {kind === "staff" &&
             staffRouteReady &&
             (call || (!error && !expired)) && (
