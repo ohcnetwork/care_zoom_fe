@@ -16,6 +16,11 @@ import { ApiError, getJoinToken } from "../utils/api";
 import { staffCallPath } from "../utils/routes";
 import type { AppointmentInfo } from "../types";
 import type { ZoomCallHandle } from "../components/ZoomCall";
+import {
+  AppointmentSidebarSkeleton,
+  PrejoinCardSkeleton,
+  ZoomCallSkeleton,
+} from "../components/LoadingSkeletons";
 const ZoomCall = lazy(() => import("../components/ZoomCall"));
 const StaffAppointmentDetails = lazy(
   () => import("../components/StaffAppointmentDetails"),
@@ -77,8 +82,6 @@ export default function CallPage({
     bookingId: string;
     info: AppointmentInfo;
   }>();
-  const [requestingDeviceAccess, setRequestingDeviceAccess] = useState(false);
-  const [deviceAccessError, setDeviceAccessError] = useState(false);
   const call =
     active?.identity === identity && active?.bookingId === bookingId && kind
       ? active
@@ -93,25 +96,11 @@ export default function CallPage({
     staffContext.facility_id === facilityId &&
     staffContext.patient_id === patientId;
   const showAppointment = !!call || !error;
-  async function prepareCall() {
-    setDeviceAccessError(false);
-    setRequestingDeviceAccess(true);
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("media_devices_unavailable");
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: true,
-      });
-      stream.getTracks().forEach((track) => track.stop());
-      setActive({ identity, bookingId, info: data! });
-    } catch {
-      setDeviceAccessError(true);
-    } finally {
-      setRequestingDeviceAccess(false);
+  useEffect(() => {
+    if (!call && data?.can_join && identity) {
+      setActive({ identity, bookingId, info: data });
     }
-  }
+  }, [call, data, identity, bookingId]);
   useEffect(() => {
     if (staffContext && !staffRouteReady) {
       window.location.replace(
@@ -130,14 +119,14 @@ export default function CallPage({
   ]);
   return (
     <Page>
-      <div className="zoom-call-page mx-auto my-4 w-full max-w-6xl px-3 text-secondary-900 sm:px-4">
+      <div className="zoom-call-page mx-auto w-full max-w-6xl px-3 text-secondary-900 sm:px-4">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 border border-primary-200 text-primary-500">
               <Video className="size-4" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-lg font-bold tracking-tight text-gray-900">
+              <h1 className="text-lg font-semibold tracking-tight text-gray-900">
                 {t("zoom__call_title")}
               </h1>
             </div>
@@ -171,7 +160,7 @@ export default function CallPage({
             {call ? (
               <>
                 {/* Eligibility gates fresh token requests; polling must not destroy an ongoing call. */}
-                <Suspense fallback={<p role="status">{t("zoom__loading")}</p>}>
+                <Suspense fallback={<ZoomCallSkeleton />}>
                   <ZoomCall
                     ref={zoomCall}
                     key={`${identity}:${bookingId}`}
@@ -202,7 +191,7 @@ export default function CallPage({
               </div>
             ) : !data ||
               (kind === "staff" && staffContext && !staffRouteReady) ? (
-              <p role="status">{t("zoom__loading")}</p>
+              <PrejoinCardSkeleton />
             ) : kind === "staff" && !staffContext ? (
               <div role="alert">
                 <p>{t("zoom__load_failed")}</p>
@@ -288,34 +277,13 @@ export default function CallPage({
                     </p>
                   </div>
                 )}
-                {deviceAccessError && (
-                  <p
-                    role="alert"
-                    className="rounded-md bg-red-50 p-3 text-sm text-red-800"
-                  >
-                    {t("zoom__device_access_failed")}
-                  </p>
-                )}
-                {data.can_join && identity && (
-                  <Button
-                    disabled={requestingDeviceAccess}
-                    onClick={prepareCall}
-                  >
-                    <Video aria-hidden="true" />
-                    {t(
-                      requestingDeviceAccess
-                        ? "zoom__checking_devices"
-                        : "zoom__prepare",
-                    )}
-                  </Button>
-                )}
               </div>
             )}
           </section>
           {kind === "staff" &&
             staffRouteReady &&
             (call || (!error && !expired)) && (
-              <Suspense fallback={<p role="status">{t("zoom__loading")}</p>}>
+              <Suspense fallback={<AppointmentSidebarSkeleton />}>
                 <StaffAppointmentDetails
                   key={`${identity}:${bookingId}:${facilityId}:${patientId}`}
                   bookingId={bookingId}

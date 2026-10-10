@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type Ref,
 } from "react";
@@ -30,6 +31,7 @@ import {
 } from "lucide-react";
 import type { JoinToken } from "../types";
 import { useCallPictureInPicture } from "../hooks/useCallPictureInPicture";
+import { ZoomCallSkeleton } from "./LoadingSkeletons";
 import { Button } from "./ui/button";
 
 type SDK = typeof ZoomVideo;
@@ -219,6 +221,9 @@ export default function ZoomCall({
   const [speakerId, setSpeakerId] = useState("");
   const [cameraOn, setCameraOn] = useState(false);
   const [checkingMic, setCheckingMic] = useState(false);
+  const [prejoinDevicePanel, setPrejoinDevicePanel] = useState<
+    "audio" | "camera" | null
+  >(null);
   const [audioOn, setAudioOn] = useState(false);
   const [muted, setMuted] = useState(true);
   const [host, setHost] = useState(false);
@@ -229,6 +234,9 @@ export default function ZoomCall({
   const devicePanelRef = useRef<HTMLDivElement>(null);
   const audioSettingsRef = useRef<HTMLButtonElement>(null);
   const cameraSettingsRef = useRef<HTMLButtonElement>(null);
+  const prejoinDevicePanelRef = useRef<HTMLDivElement>(null);
+  const prejoinAudioTriggerRef = useRef<HTMLButtonElement>(null);
+  const prejoinCameraTriggerRef = useRef<HTMLButtonElement>(null);
   const deviceSettingsId = useId();
   const [startedAt, setStartedAt] = useState<number>();
   const [elapsed, setElapsed] = useState(0);
@@ -290,6 +298,40 @@ export default function ZoomCall({
       ownerDocument?.removeEventListener("keydown", escape);
     };
   }, [devicePanel, compact, connected]);
+
+  useEffect(() => {
+    if (phase !== "prejoin") setPrejoinDevicePanel(null);
+  }, [phase]);
+
+  useEffect(() => {
+    if (!prejoinDevicePanel || phase !== "prejoin") return;
+    const ownerDocument = prejoinDevicePanelRef.current?.ownerDocument;
+    prejoinDevicePanelRef.current?.querySelector("select")?.focus();
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (
+        !prejoinDevicePanelRef.current?.contains(target) &&
+        !prejoinAudioTriggerRef.current?.contains(target) &&
+        !prejoinCameraTriggerRef.current?.contains(target)
+      )
+        setPrejoinDevicePanel(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setPrejoinDevicePanel(null);
+      (prejoinDevicePanel === "audio"
+        ? prejoinAudioTriggerRef
+        : prejoinCameraTriggerRef
+      ).current?.focus();
+    };
+    ownerDocument?.addEventListener("pointerdown", dismiss);
+    ownerDocument?.addEventListener("keydown", escape);
+    return () => {
+      ownerDocument?.removeEventListener("pointerdown", dismiss);
+      ownerDocument?.removeEventListener("keydown", escape);
+    };
+  }, [prejoinDevicePanel, phase]);
 
   // ── Live audio level meter ────────────────────────────────────────────────
   // Drives the mic-check bar from a plain Web Audio analyser against the
@@ -517,6 +559,7 @@ export default function ZoomCall({
     setHost(false);
     setCameraOn(false);
     setCheckingMic(false);
+    setPrejoinDevicePanel(null);
     setAudioOn(false);
     setMuted(true);
     setDevicePanel(null);
@@ -821,24 +864,47 @@ export default function ZoomCall({
         { deviceId: "environment", label: t("zoom__back_camera") },
       ]
     : devices.filter((device) => device.kind === "videoinput");
+  // Device labels are blank until the browser has granted camera/mic access at
+  // least once; only offer the switcher once there's something real to pick from.
+  const hasMicDevices = devices.some(
+    (device) => device.kind === "audioinput" && device.label,
+  );
+  const hasCameraDevices =
+    mobileCamera ||
+    devices.some((device) => device.kind === "videoinput" && device.label);
   function deviceSelect(
     kind: "camera" | "microphone" | "speaker",
     value: string,
     options: { deviceId: string; label: string }[],
   ) {
+    // Chrome/Edge expose the active default as its own entry (id "default"/
+    // "communications") for audio devices; cameras never get one, so fall
+    // back to the first listed camera — that's the one actually in use.
+    const defaultDevice =
+      options.find((device) => device.deviceId === "default") ?? options[0];
+    const defaultLabel = defaultDevice?.label.replace(/^default\s*-\s*/i, "");
     return (
       <label className="block space-y-1 text-sm font-medium">
         {t(`zoom__${kind}`)}
         <select
           aria-label={t(`zoom__${kind}`)}
-          className="block h-9 w-full rounded-md border border-gray-400 bg-white px-3 text-sm text-gray-900"
+          className="block h-9 w-full rounded-md border border-gray-400 bg-white px-3 text-sm text-gray-900 focus:border-primary-600 focus:ring-2 focus:ring-primary-600/30 focus:outline-hidden"
           value={value}
           disabled={busy || phase === "reconnecting"}
           onChange={(event) => changeDevice(kind, event.target.value)}
         >
-          <option value="">{t("zoom__system_default")}</option>
+          <option value="">
+            {defaultLabel
+              ? `${t("zoom__system_default")} (${defaultLabel})`
+              : t("zoom__system_default")}
+          </option>
           {options
-            .filter((device) => device.deviceId)
+            .filter(
+              (device) =>
+                device.deviceId &&
+                device.deviceId !== "default" &&
+                device.deviceId !== "communications",
+            )
             .map((device, index) => (
               <option key={device.deviceId} value={device.deviceId}>
                 {device.label || `${t(`zoom__${kind}`)} ${index + 1}`}
@@ -864,6 +930,26 @@ export default function ZoomCall({
       {t("zoom__system_speaker")}
     </p>
   );
+  function prejoinDeviceTrigger(panel: "audio" | "camera") {
+    return (
+      <button
+        ref={
+          panel === "audio" ? prejoinAudioTriggerRef : prejoinCameraTriggerRef
+        }
+        type="button"
+        className="zoom-device-trigger"
+        title={t(`zoom__${panel}_settings`)}
+        aria-label={t(`zoom__${panel}_settings`)}
+        aria-expanded={prejoinDevicePanel === panel}
+        disabled={busy}
+        onClick={() =>
+          setPrejoinDevicePanel(prejoinDevicePanel === panel ? null : panel)
+        }
+      >
+        <ChevronUp aria-hidden="true" />
+      </button>
+    );
+  }
   function deviceTrigger(panel: "audio" | "camera") {
     return (
       <button
@@ -935,9 +1021,13 @@ export default function ZoomCall({
         )}
       </div>
       {(phase === "loading" || phase === "joining") && (
-        <div className="zoom-call-loading" role="status">
-          <Video aria-hidden="true" />
-          {t(phase === "loading" ? "zoom__sdk_loading" : "zoom__connecting")}
+        <div
+          role="status"
+          aria-label={t(
+            phase === "loading" ? "zoom__sdk_loading" : "zoom__connecting",
+          )}
+        >
+          <ZoomCallSkeleton />
         </div>
       )}
       {phase === "prejoin" && (
@@ -954,61 +1044,86 @@ export default function ZoomCall({
               />
               {!cameraOn && (
                 <div className="zoom-preview-placeholder">
-                  <span className="zoom-avatar">
-                    <VideoOff aria-hidden="true" />
+                  <VideoOff aria-hidden="true" className="size-16" />
+
+                  <span className="flex flex-col items-center gap-1">
+                    <span className="text-sm font-medium text-white">
+                      {t("zoom__camera_preview")}
+                    </span>
+                    <span className="text-xs text-gray-300">
+                      {t("zoom__camera_preview_hint")}
+                    </span>
                   </span>
-                  <span>{t("zoom__camera_off")}</span>
                 </div>
               )}
               <span className="zoom-preview-name">{t("zoom__you")}</span>
               <div className="zoom-preview-controls">
-                {control(
-                  checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic",
-                  checkingMic ? <Mic /> : <MicOff />,
-                  toggleMicCheck,
-                  { off: !checkingMic, disabled: busy },
-                )}
-                {control(
-                  cameraOn ? "zoom__stop_camera" : "zoom__check_camera",
-                  cameraOn ? <Video /> : <VideoOff />,
-                  toggleCamera,
-                  { off: !cameraOn, disabled: busy },
+                <div className="zoom-control-group">
+                  <div
+                    className="zoom-mic-ring"
+                    style={
+                      checkingMic
+                        ? ({ "--mic-level": micLevel } as CSSProperties)
+                        : undefined
+                    }
+                  >
+                    {control(
+                      checkingMic ? "zoom__stop_mic_check" : "zoom__check_mic",
+                      checkingMic ? <Mic /> : <MicOff />,
+                      toggleMicCheck,
+                      { off: !checkingMic, disabled: busy },
+                    )}
+                  </div>
+                  {hasMicDevices && prejoinDeviceTrigger("audio")}
+                </div>
+                <div className="zoom-control-group">
+                  {control(
+                    cameraOn ? "zoom__stop_camera" : "zoom__check_camera",
+                    cameraOn ? <Video /> : <VideoOff />,
+                    toggleCamera,
+                    { off: !cameraOn, disabled: busy },
+                  )}
+                  {hasCameraDevices && prejoinDeviceTrigger("camera")}
+                </div>
+                {prejoinDevicePanel && (
+                  <div
+                    ref={prejoinDevicePanelRef}
+                    className="zoom-device-popover"
+                    data-device={prejoinDevicePanel}
+                    role="region"
+                    aria-label={t(`zoom__${prejoinDevicePanel}_settings`)}
+                  >
+                    {prejoinDevicePanel === "audio" ? (
+                      <>
+                        {microphoneSelect}
+                        {speakerSelect}
+                      </>
+                    ) : (
+                      deviceSelect("camera", cameraId, cameraOptions)
+                    )}
+                  </div>
                 )}
               </div>
             </div>
-            <div className="zoom-mic-meter" data-active={checkingMic}>
-              {checkingMic ? (
-                <Mic aria-hidden="true" />
-              ) : (
-                <MicOff aria-hidden="true" />
-              )}
-              <span className="zoom-mic-label">
-                {t(checkingMic ? "zoom__mic_level" : "zoom__mic_check_hint")}
-              </span>
-              <progress
-                aria-label={t("zoom__mic_level")}
-                value={micLevel}
-                max={100}
-              />
-            </div>
-          </div>
-          <div className="zoom-prejoin-setup">
-            <div className="zoom-prejoin-heading">
-              <h3 className="text-lg font-semibold">
-                {t("zoom__ready_to_join")}
-              </h3>
-            </div>
-            <div className="zoom-device-settings">
-              {microphoneSelect}
-              {deviceSelect("camera", cameraId, cameraOptions)}
-              {speakerSelect}
-            </div>
-            <div className="zoom-prejoin-footer">
-              <Button disabled={busy} onClick={join} size="lg">
+            <div className="flex gap-2 justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">
+                  {t("zoom__ready_to_join")}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {t("zoom__prejoin_help")}
+                </p>
+              </div>
+
+              <Button
+                disabled={busy}
+                onClick={join}
+                size="lg"
+                className="w-auto"
+              >
                 <Video />
                 {t("zoom__join")}
               </Button>
-              <p className="zoom-prejoin-hint">{t("zoom__prejoin_help")}</p>
             </div>
           </div>
         </div>
@@ -1073,9 +1188,6 @@ export default function ZoomCall({
                     role="region"
                     aria-label={t(`zoom__${devicePanel}_settings`)}
                   >
-                    <h3 className="zoom-device-popover-heading">
-                      {t(`zoom__${devicePanel}_settings`)}
-                    </h3>
                     {devicePanel === "audio" ? (
                       <>
                         {microphoneSelect}

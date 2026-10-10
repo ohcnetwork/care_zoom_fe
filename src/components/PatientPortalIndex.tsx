@@ -4,6 +4,7 @@ import { useCareAuth } from "../hooks/useCareAuth";
 import { getVideoAppointments } from "../utils/api";
 import { callPath } from "../utils/routes";
 import type { AppointmentInfo } from "../types";
+import { AppointmentListSkeleton } from "./LoadingSkeletons";
 import { Button } from "./ui/button";
 import Page from "./Page";
 export default function PatientPortalIndex({
@@ -60,7 +61,7 @@ export default function PatientPortalIndex({
               </Button>
             </p>
           ) : !appointments ? (
-            <p role="status">{t("zoom__loading")}</p>
+            <AppointmentListSkeleton />
           ) : !appointments.length ? (
             <p className="text-sm text-gray-600">
               {t("zoom__no_appointments")}

@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { useCareAuth } from "../hooks/useCareAuth";
 import type { StaffAppointment } from "../types";
 import { ApiError, getStaffAppointment, getStaffFacility } from "../utils/api";
+import { AppointmentSidebarSkeleton } from "./LoadingSkeletons";
 import { Button } from "./ui/button";
 
 interface Props {
@@ -111,15 +112,7 @@ function AppointmentDetails({
       </div>
     );
   }
-  if (!data)
-    return (
-      <p
-        role="status"
-        className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500"
-      >
-        {t("zoom__loading")}
-      </p>
-    );
+  if (!data) return <AppointmentSidebarSkeleton />;
 
   const { appointment, permissions } = data;
   const appointmentUrl = `/facility/${encodeURIComponent(facilityId)}/patient/${encodeURIComponent(patientId)}/appointments/${encodeURIComponent(bookingId)}`;
@@ -160,8 +153,8 @@ function AppointmentDetails({
       aria-label={t("zoom__appointment_details")}
       className="zoom-appointment-sidebar min-w-0 space-y-3"
     >
-      <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-        <h2 className="border-b border-gray-100 px-4 py-3 text-xs font-semibold text-gray-500">
+      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <h2 className="border-b border-gray-100 bg-linear-to-r from-primary-100 to-transparent px-4 py-3 text-sm font-semibold text-gray-500">
           {t("zoom__appointment_details")}
         </h2>
         <div className="flex items-start gap-3 p-4">

@@ -6,6 +6,7 @@ import {
   updateScheduleVideoSettings,
 } from "../utils/api";
 import { Button } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -183,9 +184,10 @@ function ScheduleModeDialog({
             </Button>
           </div>
         ) : saved === null ? (
-          <p role="status" className="text-sm text-gray-600">
-            {t("zoom__loading")}
-          </p>
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full rounded-md" />
+            <Skeleton className="h-12 w-full rounded-md" />
+          </div>
         ) : (
           <fieldset disabled={saving} className="space-y-2">
             <legend className="sr-only">{t("zoom__schedule_mode")}</legend>
