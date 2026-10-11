@@ -2,7 +2,6 @@ import { useEffect, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { useCareAuth } from "../hooks/useCareAuth";
 import { getVideoAppointments } from "../utils/api";
-import { callPath } from "../utils/routes";
 import type { AppointmentInfo } from "../types";
 import { Button } from "./ui/button";
 import Page from "./Page";
@@ -81,7 +80,7 @@ export default function PatientPortalIndex({
                     </p>
                   </div>
                   <Button asChild size="sm">
-                    <a href={callPath(item.booking_id)}>
+                    <a href={item.join_path} referrerPolicy="no-referrer">
                       {t("zoom__open_call")}
                     </a>
                   </Button>

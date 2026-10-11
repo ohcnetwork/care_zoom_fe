@@ -18,6 +18,7 @@ export class ApiError extends Error {
   }
 }
 export function authToken(kind: AuthKind): string | null {
+  if (kind === "guest") return null;
   if (kind === "staff") return localStorage.getItem("care_access_token");
   try {
     return (
@@ -39,6 +40,7 @@ export async function request<T>(
     {
       ...options,
       cache: "no-store",
+      referrerPolicy: "no-referrer",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -61,16 +63,26 @@ export async function request<T>(
   return response.json() as Promise<T>;
 }
 const appointmentPath = (id: string, kind: AuthKind) =>
-  `/api/care_zoom/${kind === "patient" ? "otp/" : ""}appointments/${encodeURIComponent(id)}/`;
+  `/api/care_zoom/${kind === "guest" ? "guest/" : kind === "patient" ? "otp/" : ""}appointments/${encodeURIComponent(id)}/`;
 export const getAppointment = (
   id: string,
   kind: AuthKind,
   signal?: AbortSignal,
-) => request<AppointmentInfo>(appointmentPath(id, kind), kind, { signal });
-export const getJoinToken = (id: string, kind: AuthKind) =>
+  passcode?: string,
+) =>
+  request<AppointmentInfo>(appointmentPath(id, kind), kind, {
+    signal,
+    ...(kind === "guest" && {
+      headers: { Authorization: `Bearer ${passcode ?? ""}` },
+    }),
+  });
+export const getJoinToken = (id: string, kind: AuthKind, passcode?: string) =>
   request<JoinToken>(`${appointmentPath(id, kind)}token/`, kind, {
     method: "POST",
     body: "{}",
+    ...(kind === "guest" && {
+      headers: { Authorization: `Bearer ${passcode ?? ""}` },
+    }),
   });
 const scheduleVideoPath = (facilityId: string, scheduleId: string) =>
   `/api/care_zoom/facility/${encodeURIComponent(facilityId)}/schedules/${encodeURIComponent(scheduleId)}/video/`;

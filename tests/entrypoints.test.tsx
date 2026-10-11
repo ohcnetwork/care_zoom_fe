@@ -17,6 +17,7 @@ import manifest from "../src/manifest";
 import { authKind } from "../src/hooks/useCareAuth";
 import {
   authToken,
+  getAppointment,
   getJoinToken,
   getVideoAppointments,
 } from "../src/utils/api";
@@ -29,7 +30,12 @@ import {
 import type { AppointmentInfo, CareAuth } from "../src/types";
 import locale from "../public/locale/en.json";
 vi.mock("../src/components/ZoomCall", () => ({
-  default: () => <div>Active SDK call</div>,
+  default: ({ requestToken }: { requestToken: () => Promise<unknown> }) => (
+    <div>
+      Active SDK call
+      <button onClick={() => void requestToken()}>Fetch join token</button>
+    </div>
+  ),
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -46,7 +52,7 @@ const info: AppointmentInfo = {
   end_datetime: new Date().toISOString(),
   join_opens_at: new Date().toISOString(),
   join_closes_at: new Date(Date.now() + 3600000).toISOString(),
-  join_path: `/teleconsult/${id}`,
+  join_path: `/teleconsult/${id}?passcode=test-meeting-passcode`,
   eligible: true,
   can_join: false,
   caller_role: "host",
@@ -336,7 +342,119 @@ describe("pinned host entry points before SDK integration", () => {
       screen
         .getByRole("link", { name: "Open video call" })
         .getAttribute("href"),
-    ).toBe(`/teleconsult/${id}`);
+    ).toBe(info.join_path);
+  });
+});
+
+describe("guest appointment links", () => {
+  it("copies the backend passcode link and preserves it in the clipboard fallback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    render(
+      <PatientInfoCard
+        __base={({ children }) => <div>{children as React.ReactNode}</div>}
+        tagEntityType="appointment"
+        tagEntityId={id}
+      />,
+    );
+    fireEvent.click(await screen.findByText("Copy call link"));
+    await screen.findByText("Link copied");
+    expect(writeText).toHaveBeenCalledWith(
+      new URL(info.join_path, window.location.origin).href,
+    );
+    writeText.mockRejectedValue(new Error("Clipboard unavailable"));
+    fireEvent.click(screen.getByText("Link copied"));
+    expect(
+      (
+        await screen.findByRole("link", { name: "Open video call" })
+      ).getAttribute("href"),
+    ).toBe(info.join_path);
+  });
+
+  it("opens the existing page without CARE login and sends only the passcode for metadata and tokens", async () => {
+    window.history.replaceState({}, "", info.join_path);
+    localStorage.setItem("care_access_token", "stale-staff-token");
+    localStorage.setItem("care_patient_token", JSON.stringify(patientToken));
+    vi.mocked(fetch).mockImplementation(async () =>
+      response({
+        ...info,
+        caller_role: "participant",
+        can_join: true,
+        reason: null,
+      }),
+    );
+    authRender(<PublicRouter __base={() => <div>Fallback</div>} />, null);
+    fireEvent.click(await screen.findByText("Prepare for call"));
+    expect(screen.queryByText("Send verification code")).toBeNull();
+    expect(
+      document.querySelector('meta[name="referrer"]')?.getAttribute("content"),
+    ).toBe("no-referrer");
+    fireEvent.click(await screen.findByText("Fetch join token"));
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      `https://care.example/api/care_zoom/guest/appointments/${id}/`,
+      `https://care.example/api/care_zoom/guest/appointments/${id}/token/`,
+    ]);
+    for (const [url, options] of vi.mocked(fetch).mock.calls) {
+      expect(url).not.toContain("test-meeting-passcode");
+      expect(options).toMatchObject({
+        headers: { Authorization: "Bearer test-meeting-passcode" },
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      });
+    }
+    expect(authToken("guest")).toBeNull();
+    expect(JSON.stringify({ ...localStorage })).not.toContain(
+      "test-meeting-passcode",
+    );
+  });
+
+  it.each(["wrong", ""])(
+    "shows unavailable for an invalid passcode (%s), without requesting OTP",
+    async (passcode) => {
+      window.history.replaceState(
+        {},
+        "",
+        `/teleconsult/${id}?passcode=${passcode}`,
+      );
+      vi.mocked(fetch).mockResolvedValue(response({}, 404));
+      authRender(<CallPage bookingId={id} />, null);
+      await screen.findByRole("alert");
+      expect(screen.queryByText("Send verification code")).toBeNull();
+      expect(screen.queryByText("Test Patient · Test Doctor")).toBeNull();
+      expect(screen.queryByText("Prepare for call")).toBeNull();
+    },
+  );
+
+  it("drops an active guest call when its passcode changes", async () => {
+    window.history.replaceState({}, "", info.join_path);
+    vi.mocked(fetch).mockResolvedValue(
+      response({ ...info, can_join: true, reason: null }),
+    );
+    const view = authRender(<CallPage bookingId={id} />, patientAuth);
+    fireEvent.click(await screen.findByText("Prepare for call"));
+    await screen.findByText("Active SDK call");
+    window.history.replaceState({}, "", `/teleconsult/${id}?passcode=another`);
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+    view.rerender(<CallPage bookingId={id} />);
+    expect(screen.queryByText("Active SDK call")).toBeNull();
+    expect(screen.queryByText("Test Patient · Test Doctor")).toBeNull();
+  });
+
+  it("retains CARE authorization on staff endpoints even when a passcode is present", async () => {
+    vi.mocked(fetch).mockImplementation(async () => response(info));
+    localStorage.setItem("care_access_token", "care-staff-token");
+    await getAppointment(id, "staff", undefined, "meeting-passcode");
+    await getJoinToken(id, "staff", "meeting-passcode");
+    for (const [url, options] of vi.mocked(fetch).mock.calls) {
+      expect(url).not.toContain("/guest/");
+      expect(options?.headers).toMatchObject({
+        Authorization: "Bearer care-staff-token",
+      });
+    }
   });
 });
 describe("authorization/token client boundaries", () => {

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Copy, Video } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppointment } from "../hooks/useAppointment";
-import { callPath, callUrl, staffCallPath } from "../utils/routes";
+import { callPath, staffCallPath } from "../utils/routes";
 import { Button } from "./ui/button";
 import Page from "./Page";
 export default function AppointmentActions({
@@ -49,7 +49,9 @@ export default function AppointmentActions({
               size="lg"
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(callUrl(bookingId));
+                  await navigator.clipboard.writeText(
+                    new URL(data.join_path, window.location.origin).href,
+                  );
                   setCopied(true);
                   setCopyError(false);
                 } catch {
@@ -63,7 +65,11 @@ export default function AppointmentActions({
             {copyError && (
               <span role="alert" className="text-sm text-red-700">
                 {t("zoom__copy_failed")}{" "}
-                <a className="underline" href={callPath(bookingId)}>
+                <a
+                  className="underline"
+                  href={data.join_path}
+                  referrerPolicy="no-referrer"
+                >
                   {t("zoom__open_call")}
                 </a>
               </span>

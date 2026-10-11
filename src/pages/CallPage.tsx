@@ -26,14 +26,22 @@ export default function CallPage({
   const { t } = useTranslation();
   const zoomCall = useRef<ZoomCallHandle>(null);
   const auth = useCareAuth();
-  const kind = authKind(auth);
+  const passcode =
+    new URLSearchParams(window.location.search).get("passcode") ?? undefined;
+  const kind = auth?.user
+    ? "staff"
+    : passcode !== undefined
+      ? "guest"
+      : authKind(auth);
   const identity =
     kind === "staff"
       ? `staff:${auth?.user?.id}`
       : kind === "patient"
         ? `patient:${auth?.patientToken?.phoneNumber}`
-        : null;
-  const { data, error, retry } = useAppointment(bookingId, kind);
+        : kind === "guest"
+          ? `guest:${passcode}`
+          : null;
+  const { data, error, retry } = useAppointment(bookingId, kind, passcode);
   const [active, setActive] = useState<{
     identity: string;
     bookingId: string;
@@ -44,6 +52,7 @@ export default function CallPage({
       ? active
       : undefined;
   const expired =
+    kind !== "guest" &&
     error instanceof ApiError &&
     (error.status === 401 || error.code === "token_not_valid");
   const metadata = call?.info ?? data;
@@ -71,6 +80,7 @@ export default function CallPage({
   ]);
   return (
     <Page>
+      <meta name="referrer" content="no-referrer" />
       <div className="zoom-call-page mx-auto my-4 w-full max-w-[100rem] px-3 text-secondary-900 sm:px-4">
         <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -123,7 +133,9 @@ export default function CallPage({
                     key={`${identity}:${bookingId}`}
                     patientName={call.info.patient_name}
                     practitionerName={call.info.practitioner_name}
-                    requestToken={() => getJoinToken(bookingId, kind!)}
+                    requestToken={() =>
+                      getJoinToken(bookingId, kind!, passcode)
+                    }
                     onExit={() => setActive(undefined)}
                   />
                 </Suspense>

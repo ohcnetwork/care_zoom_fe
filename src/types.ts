@@ -1,4 +1,4 @@
-export type AuthKind = "staff" | "patient";
+export type AuthKind = "staff" | "patient" | "guest";
 export interface ScheduleVideoSettings {
   schedule_id: string;
   video_enabled: boolean;

@@ -2,10 +2,18 @@ import { useEffect, useState } from "react";
 import type { AppointmentInfo, AuthKind } from "../types";
 import { getAppointment } from "../utils/api";
 import { useCareAuth } from "./useCareAuth";
-export function useAppointment(id: string, kind: AuthKind | null) {
+export function useAppointment(
+  id: string,
+  kind: AuthKind | null,
+  passcode?: string,
+) {
   const auth = useCareAuth();
   const identity =
-    kind === "patient" ? auth?.patientToken?.token : auth?.user?.id;
+    kind === "guest"
+      ? passcode
+      : kind === "patient"
+        ? auth?.patientToken?.token
+        : auth?.user?.id;
   const identityKey = `${id}:${kind}:${identity ?? ""}`;
   const [loaded, setLoaded] = useState<{
     key: string;
@@ -20,7 +28,7 @@ export function useAppointment(id: string, kind: AuthKind | null) {
     if (!kind) return;
     const controller = new AbortController();
     const update = () =>
-      getAppointment(id, kind, controller.signal)
+      getAppointment(id, kind, controller.signal, passcode)
         .then((value) => {
           if (!controller.signal.aborted) {
             setLoaded({ key: identityKey, data: value });
@@ -39,6 +47,6 @@ export function useAppointment(id: string, kind: AuthKind | null) {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [id, kind, identity, identityKey, revision]);
+  }, [id, kind, identity, identityKey, revision, passcode]);
   return { data, error, retry: () => setRevision((value) => value + 1) };
 }
