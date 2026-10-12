@@ -334,16 +334,17 @@ export default function ZoomCall({
   }, [prejoinDevicePanel, phase]);
 
   // ── Live audio level meter ────────────────────────────────────────────────
-  // Drives the mic-check bar from a plain Web Audio analyser against the
-  // selected device, independent of the SDK's own (unreliable before join)
-  // volume reporting.
+  // Drives the mic ring from a plain Web Audio analyser against the selected
+  // device, independent of the SDK's own (unreliable before join) volume
+  // reporting. Runs during the prejoin mic check and for the whole call.
+  const showMicLevel = checkingMic || (connected && audioOn && !muted);
   const [micLevel, setMicLevel] = useState(0);
   const vizAudioCtxRef = useRef<AudioContext | null>(null);
   const vizAnimRef = useRef<number | null>(null);
   const vizStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
-    if (!checkingMic) {
+    if (!showMicLevel) {
       if (vizAnimRef.current) cancelAnimationFrame(vizAnimRef.current);
       vizAudioCtxRef.current?.close();
       vizAudioCtxRef.current = null;
@@ -398,7 +399,7 @@ export default function ZoomCall({
       vizStreamRef.current?.getTracks().forEach((track) => track.stop());
       vizStreamRef.current = null;
     };
-  }, [checkingMic, microphoneId]);
+  }, [showMicLevel, microphoneId]);
 
   function errorKey(cause: unknown, fallback = "zoom__media_failed") {
     const detail = cause as {
@@ -1197,15 +1198,24 @@ export default function ZoomCall({
                   </div>
                 )}
                 <div className="zoom-control-group">
-                  {control(
-                    audioLabel,
-                    audioOn && !muted ? <Mic /> : <MicOff />,
-                    toggleAudio,
-                    {
-                      off: !audioOn || muted,
-                      disabled: busy || phase === "reconnecting",
-                    },
-                  )}
+                  <div
+                    className="zoom-mic-ring"
+                    style={
+                      showMicLevel
+                        ? ({ "--mic-level": micLevel } as CSSProperties)
+                        : undefined
+                    }
+                  >
+                    {control(
+                      audioLabel,
+                      audioOn && !muted ? <Mic /> : <MicOff />,
+                      toggleAudio,
+                      {
+                        off: !audioOn || muted,
+                        disabled: busy || phase === "reconnecting",
+                      },
+                    )}
+                  </div>
                   {!compact && deviceTrigger("audio")}
                 </div>
                 <div className="zoom-control-group">
