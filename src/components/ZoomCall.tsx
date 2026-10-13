@@ -734,6 +734,8 @@ export default function ZoomCall({
         const token = await requestToken(); // Keep the JWT only in this action and the SDK's memory.
         if (current.disposed) return;
         setPhase("joining");
+        const wantsAudio = checkingMic || !hasMicDevices;
+        const wantsVideo = cameraOn || !hasCameraDevices;
         await stopPreview(current);
         if (current.disposed) return;
         setCheckingMic(false);
@@ -758,7 +760,7 @@ export default function ZoomCall({
         setHost(token.role === "host");
         setStartedAt(Date.now());
         setPhase("connected");
-        if (cameraOn) {
+        if (wantsVideo) {
           try {
             await checked(
               current.stream.startVideo({ cameraId: cameraId || undefined }),
@@ -769,6 +771,21 @@ export default function ZoomCall({
               setCameraOn(false);
               setError(errorKey(cause));
             }
+          }
+        }
+        if (wantsAudio) {
+          try {
+            await checked(
+              current.stream.startAudio({
+                microphoneId: microphoneId || undefined,
+                speakerId: speakerSelection
+                  ? speakerId || undefined
+                  : undefined,
+              }),
+            );
+          } catch (cause) {
+            reportFailure("start-audio", cause);
+            if (!current.disposed) setError(errorKey(cause));
           }
         }
         await refreshParticipants(current);
