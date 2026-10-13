@@ -241,7 +241,8 @@ export default function ZoomCall({
   const [startedAt, setStartedAt] = useState<number>();
   const [elapsed, setElapsed] = useState(0);
   const connected = phase === "connected" || phase === "reconnecting";
-  const pictureInPicture = useCallPictureInPicture(connected);
+  const callName = patientName || t("zoom__call_title");
+  const pictureInPicture = useCallPictureInPicture(connected, callName);
   useImperativeHandle(
     ref,
     () => ({ openPictureInPicture: pictureInPicture.open }),
@@ -255,7 +256,14 @@ export default function ZoomCall({
   const duration = `${Math.floor(elapsed / 60)
     .toString()
     .padStart(2, "0")}:${(elapsed % 60).toString().padStart(2, "0")}`;
-  const callName = patientName || t("zoom__call_title");
+
+  useEffect(() => {
+    const previous = document.title;
+    document.title = `Video Call -${callName}`;
+    return () => {
+      document.title = previous;
+    };
+  }, [callName]);
 
   useEffect(() => {
     if (!connected || startedAt === undefined) return;

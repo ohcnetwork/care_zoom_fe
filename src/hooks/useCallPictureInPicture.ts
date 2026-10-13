@@ -13,7 +13,7 @@ type PictureInPictureAPI = {
   }) => Promise<Window>;
 };
 
-export function useCallPictureInPicture(enabled: boolean) {
+export function useCallPictureInPicture(enabled: boolean, title?: string) {
   const mount = useRef<HTMLDivElement>(null);
   // Keep the React portal target stable while moving its live SDK nodes between documents.
   const [container] = useState(() => {
@@ -30,6 +30,8 @@ export function useCallPictureInPicture(enabled: boolean) {
   const pending = useRef(false);
   const generation = useRef(0);
   const restore = useRef<(() => void) | undefined>(undefined);
+  const titleRef = useRef(title);
+  titleRef.current = title;
 
   const close = useCallback(() => restore.current?.(), []);
 
@@ -56,7 +58,7 @@ export function useCallPictureInPicture(enabled: boolean) {
         pip.close();
         return;
       }
-      pip.document.title = document.title;
+      pip.document.title = titleRef.current || document.title;
       pip.document.documentElement.lang = document.documentElement.lang;
       pip.document.documentElement.dir = document.documentElement.dir;
       pip.document.documentElement.style.colorScheme = "dark";
